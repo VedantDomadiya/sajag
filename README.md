@@ -127,14 +127,14 @@ sequenceDiagram
         B->>B: cut chunk, downmix to 16 kHz mono WAV
         B->>S: POST /api/analyze {chunk, transcript so far, flags so far, last score}
         S->>G: audio + context + JSON schema
-        G-->>S: transcript, English gloss, red flags + evidence, scam probability, warning
+        G-->>S: transcript, English gloss, red flags + evidence, scam probability, reasoning
         S->>S: keyword rules (second opinion) + two-key fusion + sticky risk
-        S-->>B: risk, level, flags, warning
+        S-->>B: risk, level, flags, transcript
         B->>B: update transcript, chips, meter
     end
     alt level becomes SCAM
-        B->>S: POST /api/speak {warning, lang}
-        S->>T: text
+        B->>S: POST /api/speak {top flag, lang}
+        S->>T: hand-written headline + explanation
         T-->>S: speech
         S-->>B: WAV
         B->>B: duck call audio, red overlay, speak warning,<br/>Tell family / 1930 / Cut the call
@@ -170,7 +170,8 @@ Deep dive, including the full prompt, schema, latency budget and failure modes: 
 | `REMOTE_ACCESS` | Install AnyDesk/TeamViewer, share screen, click a link | Apps like AnyDesk or screen sharing hand your phone and bank to the caller. |
 
 The explanations are **written by hand, not generated**, in [`app/redflags.py`](app/redflags.py), so the advice an elder
-hears is always correct. Gemini additionally writes a short call-specific warning in the chosen language.
+hears is always correct. Gemini picks *which* red flags apply and quotes the evidence; it never writes the advice. That
+also means a scammer can't steer what Sajag tells the user.
 
 ## 6. Not crying wolf: the two-key risk model
 
@@ -256,7 +257,7 @@ API (interactive docs at `/api/docs`):
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/api/analyze` | Analyse one chunk: `{audio_b64, mime, lang, t_start, t_end, state}` → risk, level, flags, transcript, warning |
-| `POST` | `/api/speak` | Speak the warning with Gemini TTS: `{lang, warning, token}` or `{lang, flag}` → `audio/wav`. Only server-issued text is spoken. |
+| `POST` | `/api/speak` | Speak the warning with Gemini TTS: `{lang, flag}` → `audio/wav`. Only hand-written text is spoken. |
 | `GET` | `/api/samples` | The sample calls |
 | `GET` | `/api/meta` | Red-flag labels, explanations and headlines in all three languages |
 | `GET` | `/api/health` | Model names and whether a key is configured |
@@ -302,9 +303,10 @@ What "good" means, and how to read the results: [docs/EVALUATION.md](docs/EVALUA
   passed inside delimited `<previous_transcript>` tags marked as untrusted data, the system prompt tells Gemini never to
   follow instructions heard in the call and to treat any attempt to address "the AI" as a scam signal, and the keyword
   combo can still force *Careful* even if the model is talked down.
-- **No free proxy to the key.** `/api/speak` only speaks text the server wrote: a fixed headline plus either a warning it
-  returned from `/api/analyze` (verified with an HMAC token, and rejected if it contains digits, links or addresses) or a hand-written explanation. Both API routes are rate
-  limited per client (40 analyses and 6 speeches a minute). Set a budget alert on the Google Cloud project too.
+- **No free proxy to the key, and no model text read aloud.** `/api/speak` only speaks hand-written text: the fixed
+  headline plus the curated explanation for one red-flag code. No model-written advice is shown or spoken; the one-line
+  English reasoning in the "Why" panel passes an allowlist (no digits in any script, no "@", nothing domain-like).
+  Both API routes are rate limited per client (40 analyses and 6 speeches a minute) and by a shared per-endpoint cap. Set a budget alert on the Google Cloud project too.
 - **Errors don't leak.** Upstream failures are logged on the server; the browser gets a generic message.
 - **Headers.** `X-Content-Type-Options: nosniff`, a strict `Referrer-Policy`, and a `Permissions-Policy` that allows
   only the microphone.

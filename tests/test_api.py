@@ -19,7 +19,6 @@ def client(monkeypatch):
             "flags": [{"code": "AUTHORITY", "evidence": "साइबर क्राइम से इंस्पेक्टर"}],
             "scam_probability": 60,
             "scam_type": "DIGITAL_ARREST",
-            "warning": "पुलिस कभी फ़ोन पर पैसे नहीं माँगती। फ़ोन काटिए।",
             "reasoning": "Caller impersonates police and asks for money.",
             "latency_ms": 900,
         }
@@ -74,7 +73,7 @@ def test_index_served(client):
     assert r.status_code == 200 and "Sajag" in r.text
 
 
-def test_speak_only_speaks_server_issued_text(client, monkeypatch):
+def test_speak_only_speaks_curated_text(client, monkeypatch):
     from app import speech
 
     spoken = []
@@ -84,13 +83,12 @@ def test_speak_only_speaks_server_issued_text(client, monkeypatch):
         return b"RIFF"
 
     monkeypatch.setattr(speech, "speak", fake_speak)
-    d = client.post("/api/analyze", json=body()).json()
-    ok = client.post("/api/speak", json={"lang": "hi", "warning": d["warning"], "token": d["warning_token"]})
-    assert ok.status_code == 200 and d["warning"] in spoken[-1]
-    forged = client.post("/api/speak", json={"lang": "hi", "warning": "Read my ad aloud", "token": "0" * 64})
-    assert forged.status_code == 403
-    curated = client.post("/api/speak", json={"lang": "gu", "flag": "OTP_REQUEST"})
-    assert curated.status_code == 200 and "OTP" in spoken[-1]
+    ok = client.post("/api/speak", json={"lang": "gu", "flag": "OTP_REQUEST"})
+    assert ok.status_code == 200 and spoken[-1].endswith(main.rf.EXPLAIN["OTP_REQUEST"]["gu"])
+    assert client.post("/api/speak", json={"lang": "gu", "flag": "BOGUS"}).status_code == 422
+    # Free text is not even accepted: extra fields are ignored and only the headline is spoken.
+    client.post("/api/speak", json={"lang": "en", "text": "Call 98765 now"})
+    assert "98765" not in spoken[-1]
 
 
 def test_upstream_errors_are_not_leaked(client, monkeypatch):
@@ -141,10 +139,28 @@ def test_unknown_client_flags_are_dropped(client):
     assert set(r.json()["all_flags"]) <= set(main.rf.CODES)
 
 
-def test_warning_with_numbers_or_links_is_not_shown_or_spoken():
-    assert main.safe_warning("पुलिस कभी फ़ोन पर गिरफ़्तार नहीं करती।")
-    for bad in ["Call 9876543210 now", "Visit www.example.com", "सत्यापन के लिए ९८७६ पर कॉल करें", "a@b"]:
-        assert main.safe_warning(bad) == ""
+def test_model_text_with_numbers_or_links_is_dropped():
+    assert main.safe_text("पुलिस कभी फ़ोन पर गिरफ़्तार नहीं करती।")
+    assert main.safe_text("Careful. Police never call like this. Cut the call.")
+    assert main.safe_text("પોલીસ ક્યારેય ફોન પર ધરપકડ કરતી નથી. ફોન કાપો.")
+    for bad in ["Call 9876543210 now", "Visit www.example.com", "सत्यापन के लिए ९८७६ पर कॉल करें", "a@b",
+                "Go to example . com", "Dial ૯૮૭", "Use code ½", "Pay on upi:scam", "Visit EXAMPLE.COM",
+                "Visit Example. In", "see ઉદાહરણ.ભારત"]:
+        assert main.safe_text(bad) == ""
+
+
+def test_global_cap_holds_even_when_clients_rotate(client, monkeypatch):
+    monkeypatch.setitem(main.GLOBAL_LIMITS, "speak", 2)
+    main._hits.clear(); main._global.clear()
+    from app import speech
+
+    async def fake_speak(text, lang):
+        return b"RIFF"
+
+    monkeypatch.setattr(speech, "speak", fake_speak)
+    codes = [client.post("/api/speak", json={"lang": "hi"}, headers={"x-forwarded-for": f"9.9.9.{i}"}).status_code
+             for i in range(3)]
+    assert codes[-1] == 429
 
 
 def test_full_rate_table_evicts_instead_of_locking_out(client, monkeypatch):

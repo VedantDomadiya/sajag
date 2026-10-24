@@ -58,8 +58,7 @@ flowchart LR
 8. **Render.** The browser appends the transcript (speaker-labelled bubbles plus the English gloss), lights the chips with
    evidence, moves the meter and drops a coloured marker on the call's progress bar.
 9. **Warn (once).** The first time the level is `SCAM`, the call audio ducks to 12%, the overlay opens with the
-   headline, Gemini's call-specific warning and the curated explanation for every flag seen, the phone vibrates where
-   supported, and the warning is spoken through `/api/speak`.
+   headline and the curated explanation for every flag seen, the phone vibrates where supported, and the headline plus the top flag's curated explanation is spoken through `/api/speak`.
 
 ## 3. The prompt
 
@@ -76,8 +75,9 @@ The full system prompt lives in [`app/analyzer.py`](../app/analyzer.py). Its des
   requests like a delivery person asking for the address. "Ordinary calls stay below 20. Use 70+ only for clear red
   flags."
 - **Evidence in the original language.** Every flag must quote the caller's exact words, which the UI shows.
-- **The warning is for an elder.** One or two short sentences, everyday words, in the chosen language, saying what is
-  wrong and what to do, with an example in the prompt.
+- **No free-form warning from the model.** Gemini returns codes, evidence, a score and a one-line English reasoning.
+  Every sentence the elder reads or hears is hand-written in `redflags.py`, so the advice is always correct and a caller
+  can't steer what Sajag tells the user.
 
 ### Response schema
 
@@ -88,7 +88,6 @@ The full system prompt lives in [`app/analyzer.py`](../app/analyzer.py). Its des
   "flags": [{"code": "AUTHORITY", "evidence": "मुंबई साइबर क्राइम ब्रांच से इंस्पेक्टर"}],
   "scam_probability": 62,
   "scam_type": "DIGITAL_ARREST",
-  "warning": "पुलिस कभी वीडियो कॉल पर गिरफ़्तार नहीं करती। फ़ोन काट दीजिए।",
   "reasoning": "Caller impersonates police and introduces a criminal accusation."
 }
 ```
@@ -102,7 +101,7 @@ The full system prompt lives in [`app/analyzer.py`](../app/analyzer.py). Its des
             {"code": "MONEY_REQUEST", "evidence": "…सारा पैसा ट्रांसफर कर…", "source": "rules"}],
   "all_flags": ["AUTHORITY", "MONEY_REQUEST"],
   "risk": 85, "model_risk": 62, "rule_risk": 55, "combo": true, "level": "SCAM",
-  "scam_type": "DIGITAL_ARREST", "warning": "...", "warning_token": "<hmac>", "reasoning": "...", "latency_ms": 940
+  "scam_type": "DIGITAL_ARREST", "reasoning": "...", "latency_ms": 940
 }
 ```
 
@@ -152,11 +151,14 @@ the "transfer the money" step completes.
   delimited `<previous_transcript>` block (delimiters stripped from the content) explicitly marked as untrusted data;
   the system prompt forbids following instructions from the call and treats talking to "the AI" as a scam signal;
   the keyword combo independently forces `CAUTION`.
-- **Spoken text is server-issued.** `/api/analyze` returns an HMAC `warning_token` over `(lang, warning)`. `/api/speak`
-  speaks the fixed headline plus either a warning with a valid token or a curated explanation by flag code, and returns
-  403 for anything else. The signing key is derived from the API key, so all instances agree with no extra config.
+- **Only hand-written text is spoken.** `/api/speak` takes a language and a red-flag code and speaks the fixed headline
+  plus that flag's curated explanation. Model output is never read aloud, so a caller can't make Sajag say a phone number
+  or a link. No model-written warning is shown either. The only free-form model text on screen is the one-line English
+  reasoning in the "Why" panel, behind an allowlist (letters, marks, basic punctuation; any Unicode digit or number,
+  "@", or anything domain-like, matched case-insensitively, drops it).
 - **Rate limits.** Per-client sliding window, in memory per instance: 40 `/api/analyze` and 6 `/api/speak` per minute.
-  A live call needs 12 analyses a minute. The table tracks up to 10,000 clients; when it is full of live clients the
+  A live call needs 12 analyses a minute. On top of that, a shared cap per endpoint (600 analyses, 60 speeches a
+  minute per instance) holds no matter how clients rotate. The table tracks up to 10,000 clients; when it is full of live clients the
   least recently active one is evicted. That is a deliberate trade-off: an in-process limiter must either fail open
   (evict) or fail closed (refuse every newcomer, which lets one attacker lock out all real users). Defeating it needs
   10,000+ distinct IPs or IPv6 /64s, and against that the real controls are an edge limiter (Cloud Armor rate-based

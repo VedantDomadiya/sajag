@@ -6,13 +6,12 @@ with every chunk, so this runs happily on Cloud Run with any number of instances
 
 import base64
 import binascii
-import hashlib
-import hmac
 import ipaddress
 import json
 import logging
 import re
 import time
+import unicodedata
 from collections import defaultdict, deque
 
 from fastapi import FastAPI, HTTPException, Request
@@ -47,37 +46,19 @@ class ChunkRequest(BaseModel):
 
 
 class SpeakRequest(BaseModel):
-    """The server only ever speaks text it wrote itself: a fixed headline, plus either a warning it returned from
-    /api/analyze (proved by `token`) or the hand-written explanation for one red flag."""
+    """Sajag only ever speaks text written by hand on the server: the fixed headline plus the curated explanation for
+    one red-flag code. Model output is never spoken, so a caller can't get Sajag to read out a number or a link."""
 
     lang: str = Field("gu", pattern="^(gu|hi|en)$")
-    warning: str = Field("", max_length=600)
-    token: str = Field("", max_length=128)
     flag: str | None = Field(None, max_length=32)
-
-
-# Signed tokens for warnings. The signing key is derived from the API key, so every instance agrees without extra config.
-_SIGNING_KEY = hashlib.sha256(b"sajag-speak-v1|" + config.GEMINI_API_KEY.encode()).digest()
-
-
-# A spoken warning must never carry a number, link or address: a caller could try to get Sajag to read out
-# "call 98xxx" or "visit example.com". Anything suspicious is dropped and the curated explanation is used instead.
-_UNSAFE_WARNING = re.compile(r"[0-9०-९૦-૯@]|https?:|www\.|\.(com|in|net|org|app|link)\b", re.IGNORECASE)
-
-
-def safe_warning(text: str) -> str:
-    text = text.strip()
-    return "" if len(text) > 220 or _UNSAFE_WARNING.search(text) else text
-
-
-def sign_warning(lang: str, text: str) -> str:
-    return hmac.new(_SIGNING_KEY, f"{lang}|{text}".encode(), hashlib.sha256).hexdigest()
 
 
 # Per-client rate limits, so the public endpoints can't be used as a free proxy to a paid key. In-memory, per instance:
 # good enough to stop casual abuse; put Cloud Armor or API Gateway in front for anything bigger.
 RATE_LIMITS = {"analyze": (40, 60), "speak": (6, 60)}  # (requests, per seconds)
+GLOBAL_LIMITS = {"analyze": 600, "speak": 60}  # per instance, per window: ~50 concurrent live calls
 MAX_TRACKED = 10_000
+_global: dict[str, deque] = defaultdict(deque)
 _hits: dict[tuple[str, str], deque] = defaultdict(deque)
 
 
@@ -118,12 +99,39 @@ def rate_limit(request: Request, bucket: str) -> None:
         _prune(now)
         if len(_hits) >= MAX_TRACKED:  # still full: evict the least recently active client, never lock everyone out
             del _hits[min(_hits, key=lambda k: _hits[k][-1])]
+    # Shared cap per endpoint: whatever happens to individual counters, the instance never exceeds this budget.
+    g = _global[bucket]
+    while g and now - g[0] > window:
+        g.popleft()
     q = _hits[key]
     while q and now - q[0] > window:
         q.popleft()
-    if len(q) >= limit:
+    if len(q) >= limit or len(g) >= GLOBAL_LIMITS[bucket]:
         raise HTTPException(429, "Too many requests, slow down")
     q.append(now)
+    g.append(now)
+
+
+# Every warning the user sees or hears is hand-written. The only free-form model text shown is the short English
+# "reasoning" in the Why panel, behind an allowlist: letters, marks, spaces and basic punctuation. Any digit or number
+# character in any script, "@", or anything domain-like (example.com, example . com, .IN) drops it.
+_DOMAIN_LIKE = re.compile(
+    r"[^\W\d_]\.[^\W\d_]|\s\.\s*[^\W\d_]|\.\s*(com|in|net|org|co|io|app|link|xyz|me|info|online|site)\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_ALLOWED_PUNCT = set(" ,.!?'\"()-–—।॥…\n")
+
+
+def safe_text(text: str) -> str:
+    text = text.strip()
+    if not text or len(text) > 220 or _DOMAIN_LIKE.search(text):
+        return ""
+    for ch in text:
+        cat = unicodedata.category(ch)
+        if cat[0] in ("L", "M") or ch in _ALLOWED_PUNCT:
+            continue
+        return ""
+    return text
 
 
 @app.get("/api/health")
@@ -184,7 +192,6 @@ async def analyze(req: ChunkRequest, request: Request):
     new_flags = [{**f, "source": "gemini"} for f in verdict["flags"]] + [{**h, "source": "rules"} for h in rule_hits]
 
     all_codes = set(prev_flags) | {f["code"] for f in new_flags}
-    warning = safe_warning(verdict["warning"])
     fused = risk.fuse(verdict["scam_probability"], req.state.model_risk, all_codes)
 
     return {
@@ -193,9 +200,7 @@ async def analyze(req: ChunkRequest, request: Request):
         "flags": new_flags,
         "all_flags": sorted(all_codes),
         "scam_type": verdict["scam_type"],
-        "warning": warning,
-        "warning_token": sign_warning(req.lang, warning) if warning else "",
-        "reasoning": verdict["reasoning"],
+        "reasoning": safe_text(verdict["reasoning"]),
         "latency_ms": verdict["latency_ms"],
         **fused,
     }
@@ -207,12 +212,10 @@ async def speak(req: SpeakRequest, request: Request):
     if not config.GEMINI_API_KEY:
         raise HTTPException(503, "Gemini is not configured")
     parts = [rf.HEADLINES["SCAM"][req.lang]]
-    if req.warning and safe_warning(req.warning) and hmac.compare_digest(req.token, sign_warning(req.lang, req.warning)):
-        parts.append(req.warning)
-    elif req.flag in rf.EXPLAIN:
+    if req.flag is not None:
+        if req.flag not in rf.EXPLAIN:
+            raise HTTPException(422, "Unknown red-flag code")
         parts.append(rf.EXPLAIN[req.flag][req.lang])
-    elif req.warning or req.token:
-        raise HTTPException(403, "Warning text was not issued by this server")
     try:
         wav = await speech.speak(" ".join(parts), req.lang)
     except Exception:

@@ -13,7 +13,7 @@
   function freshState() {
     return { transcript: "", flags: new Set(), evidence: {}, modelRisk: 0, risk: 0, level: "SAFE",
              alerted: false, chunks: 0, latencies: [], queue: [], busy: false, ended: null, halted: false,
-             warning: "", warningToken: "", warnedAt: null, title: "" };
+             warnedAt: null, title: "" };
   }
 
   function localGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
@@ -177,12 +177,11 @@
       mine.flags.add(f.code);
       (mine.evidence[f.code] = mine.evidence[f.code] || []).push({ text: f.evidence, source: f.source, at: chunk.t1 });
     }
-    if (d.warning) { mine.warning = d.warning; mine.warningToken = d.warning_token; }
 
     addChunk(d, chunk);
     addMarker(chunk.t1, d.level);
     renderFlags(); renderLevel(); renderStats();
-    if (d.reasoning) { $("why").hidden = false; $("whyText").textContent = (d.warning ? d.warning + " · " : "") + d.reasoning; }
+    if (d.reasoning) { $("why").hidden = false; $("whyText").textContent = d.reasoning; }
 
     if (d.level === "SCAM" && !mine.alerted && !mine.ended) raiseAlert(chunk.t1, d);
     else if (d.level === "CAUTION" && !mine.alerted) showBanner("caution", meta.headlines.CAUTION[lang]);
@@ -284,7 +283,7 @@
   function topFlag() { return [...s.flags].sort((a, b) => weight(b) - weight(a))[0] || null; }
   function spokenText() {
     const top = topFlag();
-    return s.warning || (top ? meta.explain[top][lang] : meta.headlines.SCAM[lang]);
+    return top ? meta.explain[top][lang] : meta.headlines.SCAM[lang];
   }
   function weight(code) { return { OTP_REQUEST: 7, ARREST_THREAT: 6, MONEY_REQUEST: 5, REMOTE_ACCESS: 4, SECRECY: 3, AUTHORITY: 2, URGENCY: 1 }[code] || 0; }
 
@@ -320,11 +319,12 @@
   }
 
   let speaking = null;
-  // The server only speaks text it issued: the headline plus a signed Gemini warning, or a curated explanation.
+  // Only hand-written text is spoken: the headline plus the curated explanation for the most serious red flag.
   async function speak() {
-    const text = meta.headlines.SCAM[lang] + " " + spokenText();
+    const top = topFlag();
+    const text = meta.headlines.SCAM[lang] + (top ? " " + meta.explain[top][lang] : "");
     if (speaking) speaking.pause();
-    const body = s.warning ? { lang, warning: s.warning, token: s.warningToken } : { lang, flag: topFlag() };
+    const body = { lang, flag: top };
     try {
       const res = await fetch("/api/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error(String(res.status));

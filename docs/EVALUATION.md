@@ -49,8 +49,8 @@ transcript for every call.
 - A rule combo without the model's agreement still reaches `CAUTION` (prompt-injection backstop).
 - The API fuses model and rule flags, carries client state, and rejects bad base64, wrong MIME types, unknown
   languages, oversized chunks, and requests without a configured key.
-- `/api/speak` speaks signed or curated text only (forged warnings get 403); upstream errors are not leaked; rate
-  limits return 429.
+- `/api/speak` speaks curated text only; displayed model warnings with digits, links or addresses are dropped;
+  upstream errors are not leaked; rate limits return 429.
 
 ## Threats to validity
 

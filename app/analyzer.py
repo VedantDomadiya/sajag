@@ -48,9 +48,6 @@ Rules:
 - evidence: quote the caller's exact words in the original language.
 - scam_probability: 0-100 for the whole call so far. Ordinary calls stay below 20. Use 70+ only for clear red flags.
 - scam_type: the best match, or NONE.
-- warning: if scam_probability >= 40, one or two very short sentences in {lang}, for an elderly listener, in simple
-  everyday words: say what is wrong and what to do (for example "Police never arrest anyone over a video call. Cut the
-  call now."). Otherwise "".
 - reasoning: one short English sentence explaining your score."""
 
 RESPONSE_SCHEMA = {
@@ -71,10 +68,9 @@ RESPONSE_SCHEMA = {
         },
         "scam_probability": {"type": "integer"},
         "scam_type": {"type": "string", "enum": ["NONE", "DIGITAL_ARREST", "FAKE_KYC", "FAKE_COURIER", "OTHER"]},
-        "warning": {"type": "string"},
         "reasoning": {"type": "string"},
     },
-    "required": ["transcript", "english", "flags", "scam_probability", "scam_type", "warning", "reasoning"],
+    "required": ["transcript", "english", "flags", "scam_probability", "scam_type", "reasoning"],
 }
 
 _client: genai.Client | None = None
@@ -144,6 +140,6 @@ async def analyze_chunk(
 def _clean(data: dict) -> dict:
     data["scam_probability"] = max(0, min(100, int(data.get("scam_probability", 0))))
     data["flags"] = [f for f in data.get("flags", []) if f.get("code") in rf.CODES]
-    for key in ("transcript", "english", "warning", "reasoning", "scam_type"):
+    for key in ("transcript", "english", "reasoning", "scam_type"):
         data[key] = (data.get(key) or "").strip()
     return data
