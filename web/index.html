@@ -12,6 +12,8 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+  <a class="skip" href="#main" data-i18n="skipToCall">Skip to the call</a>
+  <noscript><p class="banner caution">Sajag needs JavaScript to listen to a call.</p></noscript>
   <header class="top">
     <div class="brand">
       <img src="/static/icon.svg" alt="" width="40" height="40">
@@ -20,16 +22,23 @@
         <p class="tag" data-i18n="tagline">You are not alone on this call.</p>
       </div>
     </div>
-    <div class="lang" role="group" aria-label="Language">
-      <button data-lang="gu" aria-pressed="true">ગુજરાતી</button>
-      <button data-lang="hi" aria-pressed="false">हिंदी</button>
-      <button data-lang="en" aria-pressed="false">English</button>
+    <div class="controls">
+      <div class="size" role="group" aria-label="Text size" data-i18n-label="textSize">
+        <button type="button" data-size="m" aria-pressed="true" aria-label="Normal text">A</button>
+        <button type="button" data-size="l" aria-pressed="false" aria-label="Large text">A+</button>
+        <button type="button" data-size="xl" aria-pressed="false" aria-label="Extra large text">A++</button>
+      </div>
+      <div class="lang" role="group" aria-label="Language">
+        <button type="button" data-lang="gu" aria-pressed="true" lang="gu">ગુજરાતી</button>
+        <button type="button" data-lang="hi" aria-pressed="false" lang="hi">हिंदी</button>
+        <button type="button" data-lang="en" aria-pressed="false" lang="en">English</button>
+      </div>
     </div>
   </header>
 
-  <div id="banner" class="banner" hidden></div>
+  <div id="banner" class="banner" role="status" aria-live="polite" hidden></div>
 
-  <main class="layout">
+  <main id="main" class="layout" tabindex="-1">
     <!-- Left: pick or capture a call -->
     <section class="panel sources" aria-labelledby="src-h">
       <h2 id="src-h" data-i18n="pickCall">Play a call</h2>
@@ -37,7 +46,7 @@
       <ul id="samples" class="samples"></ul>
       <div class="or" data-i18n="or">or</div>
       <div class="source-actions">
-        <button id="micBtn" class="btn ghost" type="button"><span aria-hidden="true">🎙</span> <span data-i18n="mic">Listen live (speakerphone)</span></button>
+        <button id="micBtn" class="btn ghost" type="button" aria-pressed="false"><span aria-hidden="true">🎙</span> <span data-i18n="mic">Listen live (speakerphone)</span></button>
         <label class="btn ghost file"><span aria-hidden="true">📁</span> <span data-i18n="upload">Upload a call (.wav / .mp3)</span>
           <input id="fileIn" type="file" accept="audio/*" hidden>
         </label>
@@ -69,13 +78,13 @@
     <!-- Right: the guardian -->
     <section class="panel guard" aria-labelledby="guard-h">
       <h2 id="guard-h" data-i18n="guardian">Sajag is listening</h2>
-      <div class="meter" aria-label="Scam risk">
-        <div class="meter-head"><span data-i18n="risk">Scam risk</span><strong id="riskNum">0</strong></div>
-        <div class="meter-bar"><div id="riskFill"></div><i style="left:40%"></i><i style="left:70%"></i></div>
+      <div id="riskMeter" class="meter" role="meter" aria-labelledby="riskLabel" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="meter-head"><span id="riskLabel" data-i18n="risk">Scam risk</span><strong id="riskNum" aria-hidden="true">0</strong></div>
+        <div class="meter-bar" aria-hidden="true"><div id="riskFill"></div><i class="tick t40"></i><i class="tick t70"></i></div>
         <div class="meter-legend"><span data-i18n="safe">Safe</span><span data-i18n="caution">Careful</span><span data-i18n="scam">Scam</span></div>
       </div>
       <h3 data-i18n="redFlags">Red flags heard</h3>
-      <ul id="flags" class="flags"></ul>
+      <ul id="flags" class="flags" aria-live="polite"></ul>
       <div id="why" class="why" hidden>
         <h3 data-i18n="why">Why</h3>
         <p id="whyText"></p>
@@ -112,7 +121,9 @@
   </footer>
 
   <script src="/static/i18n.js"></script>
+  <script src="/static/core.js"></script>
   <script src="/static/audio.js"></script>
+  <script src="/static/api.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

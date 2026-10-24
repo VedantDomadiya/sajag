@@ -44,6 +44,15 @@ def resample_pcm16(pcm: bytes, src_rate: int, dst_rate: int) -> bytes:
     return struct.pack(f"<{out_n}h", *out)
 
 
+def _audio_bytes(resp: types.GenerateContentResponse) -> bytes:
+    """Pull the PCM out of a TTS response, failing loudly (and safely) if Gemini returned no audio."""
+    for candidate in resp.candidates or []:
+        for part in (candidate.content.parts if candidate.content else None) or []:
+            if part.inline_data and part.inline_data.data:
+                return part.inline_data.data
+    raise ValueError("Gemini TTS returned no audio")
+
+
 async def speak(text: str, lang: str) -> bytes:
     """Return a WAV of `text` spoken calmly. Cached, because the same warning is often spoken more than once."""
     key = hashlib.sha256(f"{lang}|{text}".encode()).hexdigest()
@@ -62,8 +71,7 @@ async def speak(text: str, lang: str) -> bytes:
             ),
         ),
     )
-    pcm = resp.candidates[0].content.parts[0].inline_data.data
-    wav = pcm_to_wav(pcm)
+    wav = pcm_to_wav(_audio_bytes(resp))
     if len(_cache) > 64:
         _cache.clear()
     _cache[key] = wav

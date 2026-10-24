@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   python:
-    name: Python · lint, tests, coverage
+    name: Python · lint, types, tests, coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +23,8 @@ jobs:
         run: uv run ruff check app scripts tests
       - name: Format check (ruff)
         run: uv run ruff format --check app scripts tests
+      - name: Type check (mypy --strict)
+        run: uv run mypy
       - name: Tests with coverage (fails under 90%)
         run: uv run pytest --cov --cov-report=term-missing
 

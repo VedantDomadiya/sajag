@@ -15,8 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app import analyzer, config, risk  # noqa: E402
-from app import redflags as rf  # noqa: E402
+from app import analyzer, config, pipeline, risk
 from app.speech import pcm_to_wav  # noqa: E402
 
 
@@ -34,23 +33,21 @@ def chunks(path: Path, seconds: float):
 
 
 async def run_call(path: Path, lang: str, seconds: float) -> dict:
-    transcript, flags, model_risk = "", set(), 0
+    transcript, flags, model_risk = "", [], 0
     warned_at, peak, timeline, latencies = None, 0, [], []
     duration = 0.0
     for t0, t1, wav in chunks(path, seconds):
         duration = t1
-        v = await analyzer.analyze_chunk(wav, "audio/wav", lang, transcript, sorted(flags), t0, t1)
+        v = await analyzer.analyze_chunk(wav, "audio/wav", lang, transcript, flags, t0, t1)
         latencies.append(v["latency_ms"])
-        flags |= {f["code"] for f in v["flags"]}
-        flags |= {h["code"] for h in rf.match_rules(v["transcript"], v["english"])}
-        fused = risk.fuse(v["scam_probability"], model_risk, flags)
-        model_risk = fused["model_risk"]
+        fused = pipeline.assess(v, flags, model_risk)  # exactly what the API does for each chunk
+        flags, model_risk = fused["all_flags"], fused["model_risk"]
         peak = max(peak, fused["risk"])
         if v["transcript"]:
             transcript += ("\n" if transcript else "") + v["transcript"]
         if fused["level"] == "SCAM" and warned_at is None:
             warned_at = t1
-        timeline.append({"t": round(t1, 1), "risk": fused["risk"], "level": fused["level"], "flags": sorted(flags)})
+        timeline.append({"t": round(t1, 1), "risk": fused["risk"], "level": fused["level"], "flags": flags})
     return {
         "duration": round(duration, 1),
         "warned_at": warned_at,

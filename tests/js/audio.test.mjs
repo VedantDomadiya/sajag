@@ -7,7 +7,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("../../web/audio.js", import.meta.url), "utf8");
 const sandbox = { window: {}, btoa, Float32Array, ArrayBuffer, DataView, Uint8Array, String, Math, setInterval, clearInterval };
 vm.runInNewContext(src, sandbox);
-const { FileCall, toBase64, encodeWav, downsample, TARGET_RATE } = sandbox.window.SajagAudio;
+const { FileCall, toBase64, encodeWav, downsample, rms, TARGET_RATE, SILENCE_RMS } = sandbox.window.SajagAudio;
 
 test("downsample averages windows to 16 kHz", () => {
   const input = new Float32Array([0, 1, 0, 1, 0, 1]); // 48 kHz -> 16 kHz is a 3:1 ratio
@@ -71,4 +71,21 @@ test("FileCall skips slivers shorter than 0.8 s", () => {
   call.tick();
   call.finish();
   assert.equal(chunks.length, 1); // the 0.5 s tail is dropped
+});
+
+test("silent chunks are flagged and carry no audio, so no Gemini call is made", () => {
+  const rate = 16000;
+  const data = new Float32Array(rate * 10);
+  for (let i = rate * 5; i < data.length; i++) data[i] = Math.sin(i / 8) * 0.3; // silence, then a tone
+  const ctx = { currentTime: 0, destination: {}, createGain: () => ({ connect() {}, gain: { setTargetAtTime() {} } }), createBufferSource: () => ({ connect() {}, start() {}, stop() {} }) };
+  const chunks = [];
+  const call = new FileCall(ctx, { numberOfChannels: 1, sampleRate: rate, duration: 10, getChannelData: () => data }, 5, (c) => chunks.push(c), () => {});
+  call.start();
+  ctx.currentTime = 10.1;
+  call.tick();
+  call.finish();
+  assert.equal(chunks[0].silent, true);
+  assert.equal(chunks[0].wav, undefined);
+  assert.ok(chunks[1].wav && !chunks[1].silent);
+  assert.ok(rms(new Float32Array(100)) < SILENCE_RMS && rms(new Float32Array(100).fill(0.5)) > SILENCE_RMS);
 });

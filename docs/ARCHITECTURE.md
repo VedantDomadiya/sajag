@@ -28,9 +28,14 @@ flowchart LR
 
 | Piece | File | Responsibility |
 |---|---|---|
-| Chunker | `web/audio.js` | Plays a file or taps the mic; emits a chunk every 5 s of *heard* audio; downmixes and resamples to 16 kHz mono 16-bit WAV. |
+| Chunker | `web/audio.js` | Plays a file or taps the mic; emits a chunk every 5 s of *heard* audio; downmixes and resamples to 16 kHz mono 16-bit WAV; marks silent chunks so they are never sent. |
+| UI core / API | `web/core.js`, `web/api.js` | Pure, unit-tested UI logic; every network call. |
 | Call controller | `web/app.js` | Owns call state; sends chunks strictly in order; renders results; raises the warning once; speaks it. |
-| API | `app/main.py` | Validates input, calls the analyzer, adds the rule layer, fuses, returns one verdict. Stateless. |
+| API | `app/main.py` | Routes only: validates input, calls the analyzer and the pipeline, returns one typed verdict. Stateless. |
+| Schemas | `app/schemas.py` | Bounded, typed request and response models. |
+| Pipeline | `app/pipeline.py` | Rule second opinion + fusion for one verdict; shared with `scripts/evaluate.py`. |
+| Rate limits | `app/ratelimit.py` | Per-client, fair-share and hard-ceiling limits with O(1) LRU bookkeeping. |
+| Web hardening | `app/web.py` | Security headers, strict CSP, selective gzip, cache policy. |
 | Analyzer | `app/analyzer.py` | Builds the Gemini request (audio + context + schema), retries once, cleans the output. |
 | Red flags | `app/redflags.py` | Taxonomy, weights, multilingual keyword rules, hand-written explanations and headlines. |
 | Risk | `app/risk.py` | Two-key fusion, sticky risk, thresholds. Pure functions, unit-tested. |

@@ -14,9 +14,10 @@ test-py:      ## Python tests with coverage
 test-js:      ## Browser audio code tests (Node 20+)
 	node --test tests/js/*.test.mjs
 
-lint:         ## Ruff lint + format check
+lint:         ## Ruff lint + format check + strict type check
 	uv run ruff check app scripts tests
 	uv run ruff format --check app scripts tests
+	uv run mypy
 
 format:       ## Auto-format
 	uv run ruff format app scripts tests

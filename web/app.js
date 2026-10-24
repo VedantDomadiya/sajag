@@ -1,7 +1,10 @@
-// Sajag UI: runs a call, ships each chunk to /api/analyze in order, and turns verdicts into a live, elder-friendly warning.
+// Sajag UI controller: runs a call, sends each chunk to the API strictly in order, and turns verdicts into a live,
+// elder-friendly warning. Pure helpers live in core.js, network calls in api.js, audio capture in audio.js.
 (function () {
   const CHUNK_SEC = 5;
   const { FileCall, MicCall, toBase64 } = window.SajagAudio;
+  const { bySeverity, topFlag, fmt, parseTranscript, warningText } = window.SajagCore;
+  const api = window.SajagApi;
   const $ = (id) => document.getElementById(id);
 
   let lang = localGet("sajag.lang") || "gu";
@@ -9,50 +12,54 @@
   let ctx = null;
   let call = null;
   let s = freshState();
+  let lastFocus = null;
+  let speaking = null;
 
+  /** Everything we know about the current call. Replaced wholesale when a new call starts. */
   function freshState() {
-    return { transcript: "", flags: new Set(), evidence: {}, modelRisk: 0, risk: 0, level: "SAFE",
-             alerted: false, chunks: 0, latencies: [], queue: [], busy: false, ended: null, halted: false,
-             warnedAt: null, title: "" };
+    return {
+      title: "", transcript: "", flags: new Set(), evidence: {}, scamType: "NONE",
+      modelRisk: 0, risk: 0, level: "SAFE",
+      queue: [], busy: false, ended: null, halted: false, alerted: false, warnedAt: null,
+      chunks: 0, silent: 0, latencies: [],
+    };
   }
 
   function localGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
   function localSet(k, v) { try { localStorage.setItem(k, v); } catch (_) { /* private mode */ } }
   const t = (key) => (window.I18N[lang] && window.I18N[lang][key]) || window.I18N.en[key] || key;
-  const fmt = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
 
-  // ---------- language ----------
+  // ---------- language and text size ----------
   function applyLang() {
     document.documentElement.lang = lang;
     document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
+    document.querySelectorAll("[data-i18n-label]").forEach((el) => el.setAttribute("aria-label", t(el.dataset.i18nLabel)));
     document.querySelectorAll(".lang button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
-    if (!call) $("callerName").textContent = t("noCall");
-    else $("callerName").textContent = s.title;
+    $("callerName").textContent = call ? s.title : t("noCall");
     renderFlags();
     renderLevel();
   }
 
-  // ---------- samples ----------
+  function applyTextSize(size) {
+    document.documentElement.dataset.textSize = size;
+    document.querySelectorAll(".size button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.size === size)));
+    localSet("sajag.size", size);
+  }
+
+  // ---------- call sources ----------
   async function loadSamples() {
-    const list = await fetch("/api/samples").then((r) => r.json());
     const ul = $("samples");
     ul.textContent = "";
-    for (const smp of list) {
-      const li = document.createElement("li");
+    for (const smp of await api.samples()) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "sample";
-      const badge = document.createElement("span");
-      badge.className = "badge " + (smp.expected === "SCAM" ? "b-scam" : "b-safe");
-      badge.textContent = smp.expected === "SCAM" ? "scam" : "genuine";
-      const lg = document.createElement("span");
-      lg.className = "badge b-lang";
-      lg.textContent = smp.language === "gu" ? "ગુજરાતી" : "हिंदी";
-      const title = document.createElement("span");
-      title.className = "sample-title";
-      title.textContent = smp.title;
+      const title = el("span", "sample-title", smp.title);
+      const lg = el("span", "badge b-lang", smp.language === "gu" ? "ગુજરાતી" : "हिंदी");
+      const badge = el("span", "badge " + (smp.expected === "SCAM" ? "b-scam" : "b-safe"), smp.expected === "SCAM" ? "scam" : "genuine");
       btn.append(title, lg, badge);
       btn.addEventListener("click", () => playUrl(smp.url, smp.title));
+      const li = document.createElement("li");
       li.append(btn);
       ul.append(li);
     }
@@ -77,7 +84,7 @@
   }
 
   async function startMic() {
-    if (call && call.constructor === MicCall && !call.stopped) { call.stop(); return; }
+    if (call instanceof MicCall && !call.stopped) { call.stop(); return; }
     const c = await audioCtx();
     let stream;
     try {
@@ -88,6 +95,7 @@
     }
     startCall(new MicCall(c, stream, CHUNK_SEC, onChunk, onEnd), t("micLabel"));
     $("micBtn").classList.add("rec");
+    $("micBtn").setAttribute("aria-pressed", "true");
   }
 
   // ---------- call lifecycle ----------
@@ -111,14 +119,15 @@
 
   function tickClock() {
     if (!call) return;
-    const el = call.elapsed || 0;
-    $("callClock").textContent = fmt(el);
-    $("progressBar").style.width = isFinite(call.duration) ? `${(100 * el) / call.duration}%` : "0%";
+    const elapsed = call.elapsed || 0;
+    $("callClock").textContent = fmt(elapsed);
+    $("progressBar").style.width = isFinite(call.duration) ? `${(100 * elapsed) / call.duration}%` : "0%";
     if (!call.stopped) requestAnimationFrame(tickClock);
   }
 
   function onChunk(chunk) {
     if (s.halted) return;
+    if (chunk.silent) { s.silent += 1; renderStats(); return; } // nothing to hear: don't spend a Gemini call
     s.queue.push(chunk);
     pump();
   }
@@ -127,6 +136,7 @@
     s.ended = reason;
     $("hangBtn").disabled = true;
     $("micBtn").classList.remove("rec");
+    $("micBtn").setAttribute("aria-pressed", "false");
     $("phone").classList.remove("live");
     if (reason === "cut") { hideAlert(); showBanner("safe", t("callCut")); }
     maybeFinal();
@@ -134,18 +144,18 @@
 
   function maybeFinal() {
     if (!s.ended || s.busy || s.queue.length || s.ended === "cut" || s.halted) return;
-    showBanner(s.level === "SCAM" ? "scam" : "safe", s.level === "SCAM" ? t("callEndedScam") : t("callEndedSafe"));
+    const scam = s.level === "SCAM";
+    showBanner(scam ? "scam" : "safe", t(scam ? "callEndedScam" : "callEndedSafe"));
   }
 
-  // Chunks are analysed strictly in order, so each request carries the transcript of everything before it.
+  // Strictly in order: each request carries the transcript of everything before it.
   async function pump() {
     if (s.busy) return;
     s.busy = true;
     const mine = s;
     while (mine.queue.length && !mine.halted) {
-      const chunk = mine.queue.shift();
       try {
-        await analyze(chunk, mine);
+        await analyze(mine.queue.shift(), mine);
       } catch (err) {
         console.warn(err);
       }
@@ -155,23 +165,21 @@
   }
 
   async function analyze(chunk, mine) {
-    const body = {
-      audio_b64: toBase64(chunk.wav), mime: "audio/wav", lang,
-      t_start: chunk.t0, t_end: chunk.t1,
-      state: { transcript: mine.transcript, flags: [...mine.flags], model_risk: mine.modelRisk },
-    };
-    const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const { status, data: d } = await api.analyzeChunk({
+      wavB64: toBase64(chunk.wav), lang, t0: chunk.t0, t1: chunk.t1,
+      transcript: mine.transcript, flags: [...mine.flags], modelRisk: mine.modelRisk,
+    });
     if (mine !== s) return; // a new call started meanwhile
-    if (res.status === 503) { mine.halted = true; showBanner("caution", t("errNoKey")); return; }
-    if (!res.ok) { showBanner("caution", t("errNet")); return; }
-    const d = await res.json();
-    if (mine !== s) return;
+    if (status === 503) { mine.halted = true; showBanner("caution", t("errNoKey")); return; }
+    if (status === 429) { showBanner("caution", t("errBusy")); return; }
+    if (!d) { showBanner("caution", t("errNet")); return; }
 
     mine.chunks += 1;
     mine.latencies.push(d.latency_ms);
     mine.modelRisk = d.model_risk;
     mine.risk = d.risk;
     mine.level = d.level;
+    if (d.scam_type && d.scam_type !== "NONE") mine.scamType = d.scam_type;
     if (d.transcript) mine.transcript += (mine.transcript ? "\n" : "") + d.transcript;
     for (const f of d.flags) {
       mine.flags.add(f.code);
@@ -181,57 +189,48 @@
     addChunk(d, chunk);
     addMarker(chunk.t1, d.level);
     renderFlags(); renderLevel(); renderStats();
-    const top = topFlag();
-    if (top) { $("why").hidden = false; $("whyText").textContent = meta.explain[top][lang]; }
+    if (mine.flags.size) {
+      $("why").hidden = false;
+      $("whyText").textContent = warningText(meta, lang, mine.flags, mine.scamType);
+    }
 
-    if (d.level === "SCAM" && !mine.alerted && !mine.ended) raiseAlert(chunk.t1, d);
+    if (d.level === "SCAM" && !mine.alerted && !mine.ended) raiseAlert(chunk.t1);
     else if (d.level === "CAUTION" && !mine.alerted) showBanner("caution", meta.headlines.CAUTION[lang]);
   }
 
   // ---------- transcript ----------
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
   function addSystemLine(text) {
-    const p = document.createElement("p");
-    p.className = "sys";
-    p.textContent = text;
-    $("transcript").append(p);
+    $("transcript").append(el("p", "sys", text));
   }
 
   function addChunk(d, chunk) {
     const box = $("transcript");
     box.querySelectorAll(".sys").forEach((n) => n.remove());
     if (!d.transcript) return;
-    const group = document.createElement("div");
-    group.className = "chunk" + (d.flags.length ? " hot" : "");
-    for (const raw of d.transcript.split("\n")) {
-      const line = raw.trim();
-      if (!line) continue;
-      const m = line.match(/^(Caller|User|Speaker)\s*:\s*(.*)$/i);
-      const who = m ? m[1].toLowerCase() : "speaker";
-      const b = document.createElement("p");
-      b.className = "bubble " + who;
-      b.textContent = m ? m[2] : line;
-      group.append(b);
+    const group = el("div", "chunk" + (d.flags.length ? " hot" : ""));
+    for (const line of parseTranscript(d.transcript)) {
+      const bubble = el("p", "bubble " + line.who, line.text);
+      bubble.setAttribute("aria-label", `${t(line.who === "user" ? "you" : "caller")}: ${line.text}`);
+      group.append(bubble);
     }
-    if (d.english) {
-      const g = document.createElement("p");
-      g.className = "gloss";
-      g.textContent = d.english;
-      group.append(g);
-    }
-    const ts = document.createElement("span");
-    ts.className = "ts";
-    ts.textContent = `${fmt(chunk.t0)}–${fmt(chunk.t1)} · ${d.risk}`;
-    group.append(ts);
+    if (d.english) group.append(el("p", "gloss", d.english));
+    group.append(el("span", "ts", `${fmt(chunk.t0)}–${fmt(chunk.t1)} · ${d.risk}`));
     box.append(group);
     box.scrollTop = box.scrollHeight;
   }
 
   function addMarker(at, level) {
     if (!call || !isFinite(call.duration)) return;
-    const i = document.createElement("i");
-    i.className = "mk " + level.toLowerCase();
-    i.style.left = `${Math.min(100, (100 * at) / call.duration)}%`;
-    $("markers").append(i);
+    const mark = el("i", "mk " + level.toLowerCase());
+    mark.style.left = `${Math.min(100, (100 * at) / call.duration)}%`;
+    $("markers").append(mark);
   }
 
   // ---------- guardian panel ----------
@@ -240,22 +239,16 @@
     const ul = $("flags");
     ul.textContent = "";
     for (const code of Object.keys(meta.labels)) {
-      const li = document.createElement("li");
       const on = s.flags.has(code);
-      li.className = "flag" + (on ? " on" : "");
-      const name = document.createElement("span");
-      name.className = "flag-name";
-      name.textContent = meta.labels[code][lang];
-      li.append(name);
-      if (on) {
-        const ev = s.evidence[code] && s.evidence[code][0];
-        if (ev) {
-          const q = document.createElement("q");
-          q.textContent = ev.text;
-          q.title = `${ev.source} · ${fmt(ev.at)}`;
-          li.append(q);
-        }
+      const li = el("li", "flag" + (on ? " on" : ""));
+      li.append(el("span", "flag-name", meta.labels[code][lang]));
+      const ev = on && s.evidence[code] && s.evidence[code][0];
+      if (ev) {
+        const q = el("q", "", ev.text);
+        q.title = `${ev.source} · ${fmt(ev.at)}`;
+        li.append(q);
       }
+      li.setAttribute("aria-label", `${meta.labels[code][lang]}: ${t(on ? "heard" : "notHeard")}`);
       ul.append(li);
     }
   }
@@ -264,8 +257,11 @@
     const lvl = s.level.toLowerCase();
     const pill = $("levelPill");
     pill.className = "pill " + lvl;
-    pill.textContent = t(lvl === "caution" ? "caution" : lvl);
+    pill.textContent = t(lvl);
     $("riskNum").textContent = s.risk;
+    const meter = $("riskMeter");
+    meter.setAttribute("aria-valuenow", String(s.risk));
+    meter.setAttribute("aria-valuetext", `${s.risk} / 100, ${t(lvl)}`);
     const fill = $("riskFill");
     fill.style.width = `${s.risk}%`;
     fill.className = lvl;
@@ -273,7 +269,7 @@
   }
 
   function renderStats() {
-    $("statChunks").textContent = s.chunks;
+    $("statChunks").textContent = s.silent ? `${s.chunks} (+${s.silent} ${t("silent")})` : String(s.chunks);
     const l = s.latencies;
     $("statLatency").textContent = l.length ? `${(l.reduce((a, b) => a + b, 0) / l.length / 1000).toFixed(1)} s` : "–";
     $("statWarned").textContent = s.warnedAt == null ? "–"
@@ -281,32 +277,22 @@
   }
 
   // ---------- the warning ----------
-  function topFlag() { return [...s.flags].sort((a, b) => weight(b) - weight(a))[0] || null; }
-  function spokenText() {
-    const top = topFlag();
-    return top ? meta.explain[top][lang] : meta.headlines.SCAM[lang];
-  }
-  function weight(code) { return { OTP_REQUEST: 7, ARREST_THREAT: 6, MONEY_REQUEST: 5, REMOTE_ACCESS: 4, SECRECY: 3, AUTHORITY: 2, URGENCY: 1 }[code] || 0; }
-
   function raiseAlert(at) {
     s.alerted = true;
     s.warnedAt = at;
     renderStats();
     call.duck(0.12);
     $("alertHead").textContent = meta.headlines.SCAM[lang];
-    $("alertSpoken").textContent = spokenText();
+    $("alertSpoken").textContent = warningText(meta, lang, s.flags, s.scamType);
     const ul = $("alertReasons");
     ul.textContent = "";
-    for (const code of [...s.flags].sort((a, b) => weight(b) - weight(a))) {
+    for (const code of bySeverity(s.flags)) {
       const li = document.createElement("li");
-      const b = document.createElement("strong");
-      b.textContent = meta.labels[code][lang];
-      const p = document.createElement("span");
-      p.textContent = meta.explain[code][lang];
-      li.append(b, p);
+      li.append(el("strong", "", meta.labels[code][lang]), el("span", "", meta.explain[code][lang]));
       ul.append(li);
     }
     $("alertFamily").href = "https://wa.me/?text=" + encodeURIComponent(t("familyMsg"));
+    lastFocus = document.activeElement;
     $("alert").hidden = false;
     $("alertHang").focus();
     if (navigator.vibrate) navigator.vibrate([300, 150, 300]);
@@ -315,32 +301,37 @@
   }
 
   function hideAlert() {
+    if ($("alert").hidden) return;
     $("alert").hidden = true;
     if (call && !call.stopped) call.duck(0.6);
+    if (lastFocus && lastFocus.focus) lastFocus.focus();
   }
 
-  let speaking = null;
+  // Keep keyboard focus inside the warning while it is open.
+  function trapFocus(e) {
+    if (e.key !== "Tab" || $("alert").hidden) return;
+    const items = [...$("alert").querySelectorAll("a[href], button:not([disabled])")];
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
+    else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+  }
+
   // Only hand-written text is spoken: the headline plus the curated explanation for the most serious red flag.
   async function speak() {
-    const top = topFlag();
-    const text = meta.headlines.SCAM[lang] + (top ? " " + meta.explain[top][lang] : "");
+    const top = topFlag(s.flags);
     if (speaking) speaking.pause();
-    const body = { lang, flag: top };
     try {
-      const res = await fetch("/api/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      if (!res.ok) throw new Error(String(res.status));
-      const url = URL.createObjectURL(await res.blob());
-      speaking = new Audio(url);
+      speaking = new Audio(URL.createObjectURL(await api.speech(lang, top)));
       await speaking.play();
     } catch (_) {
-      // Fallback: the browser's own voice. Only used for *speaking* the warning, never for listening to the call.
-      if ("speechSynthesis" in window) {
-        const u = new SpeechSynthesisUtterance(text);
-        u.lang = { gu: "gu-IN", hi: "hi-IN", en: "en-IN" }[lang];
-        u.rate = 0.9;
-        speechSynthesis.cancel();
-        speechSynthesis.speak(u);
-      }
+      // Fallback: the browser's own voice. Only for *speaking* the warning, never for listening to the call.
+      if (!("speechSynthesis" in window)) return;
+      const u = new SpeechSynthesisUtterance(meta.headlines.SCAM[lang] + (top ? " " + meta.explain[top][lang] : ""));
+      u.lang = { gu: "gu-IN", hi: "hi-IN", en: "en-IN" }[lang];
+      u.rate = 0.9;
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
     }
   }
 
@@ -355,21 +346,28 @@
 
   // ---------- wiring ----------
   document.querySelectorAll(".lang button").forEach((b) => b.addEventListener("click", () => {
-    lang = b.dataset.lang; localSet("sajag.lang", lang); applyLang();
+    lang = b.dataset.lang;
+    localSet("sajag.lang", lang);
+    applyLang();
   }));
+  document.querySelectorAll(".size button").forEach((b) => b.addEventListener("click", () => applyTextSize(b.dataset.size)));
   $("micBtn").addEventListener("click", startMic);
   $("fileIn").addEventListener("change", (e) => { const f = e.target.files[0]; if (f) playFile(f); e.target.value = ""; });
   $("hangBtn").addEventListener("click", () => call && call.stop());
   $("alertHang").addEventListener("click", () => call && call.stop());
   $("alertClose").addEventListener("click", hideAlert);
   $("alertReplay").addEventListener("click", () => speak());
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("alert").hidden) hideAlert(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") hideAlert();
+    trapFocus(e);
+  });
 
   (async function init() {
-    meta = await fetch("/api/meta").then((r) => r.json());
+    applyTextSize(localGet("sajag.size") || "m");
+    meta = await api.meta();
     applyLang();
     await loadSamples();
-    const h = await fetch("/api/health").then((r) => r.json()).catch(() => null);
+    const h = await api.health().catch(() => null);
     if (h && !h.gemini_configured) showBanner("caution", t("errNoKey"));
   })();
 })();

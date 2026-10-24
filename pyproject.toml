@@ -17,6 +17,7 @@ dev = [
     "httpx>=0.27",
     "ruff>=0.17.2",
     "pytest-cov>=7.1.0",
+    "mypy>=2.4.0",
 ]
 
 [tool.pytest.ini_options]
@@ -41,3 +42,10 @@ source = ["app"]
 [tool.coverage.report]
 show_missing = true
 fail_under = 90
+
+[tool.mypy]
+python_version = "3.12"
+files = ["app"]
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]

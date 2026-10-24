@@ -12,6 +12,8 @@ Design ("two keys"):
   DECAY points per chunk.
 """
 
+from typing import Any
+
 from . import redflags as rf
 
 SCAM_AT = 70
@@ -39,7 +41,7 @@ def has_combo(codes: set[str]) -> bool:
     return pretext and ask
 
 
-def fuse(model_prob: int, prev_model: int, codes: set[str]) -> dict:
+def fuse(model_prob: int, prev_model: int, codes: set[str]) -> dict[str, Any]:
     """Combine the model's probability for this chunk with call history and all flags seen so far."""
     model = max(int(model_prob), int(prev_model) - DECAY, 0)
     rules = rule_score(codes)

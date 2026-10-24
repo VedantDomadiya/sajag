@@ -15,8 +15,10 @@ Powered by **Gemini** (audio understanding + speech generation). Built to run on
 **Challenge:** Voice AI Scam Shield
 
 [![CI](https://github.com/VedantDomadiya/sajag/actions/workflows/ci.yml/badge.svg)](https://github.com/VedantDomadiya/sajag/actions/workflows/ci.yml)
-![coverage](https://img.shields.io/badge/coverage-97%25-brightgreen)
-![tests](https://img.shields.io/badge/tests-39%20python%20%2B%205%20js-blue)
+![coverage](https://img.shields.io/badge/coverage-98%25-brightgreen)
+![tests](https://img.shields.io/badge/tests-54%20python%20%2B%2011%20js-blue)
+![mypy](https://img.shields.io/badge/mypy-strict-2a6db2)
+![ruff](https://img.shields.io/badge/lint-ruff-261230)
 ![python](https://img.shields.io/badge/python-3.11%E2%80%933.13-3776AB)
 ![Gemini](https://img.shields.io/badge/powered%20by-Gemini-4285F4)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
@@ -46,6 +48,22 @@ Powered by **Gemini** (audio understanding + speech generation). Built to run on
 | **3 · Scam confirmed: the warning takes over** | **4 · Same warning on a phone** |
 | <img src="docs/img/03-scam-warning.jpg" alt="Full-screen warning in Hindi with reasons and actions"> | <img src="docs/img/04-mobile-warning.jpg" width="260" alt="Mobile layout of the warning"> |
 
+## ✅ Problem statement → implementation
+
+Every requirement in the brief, where it lives, and how it is checked.
+
+| The brief asks for | Sajag | Where | Checked by |
+|---|---|---|---|
+| Play a scripted scam call | 3 scripted scam calls + 2 genuine calls, playable in one click; or upload any file; or **listen live** on speakerphone | `samples/`, `web/audio.js` (`FileCall`, `MicCall`) | `tests/test_api.py::test_samples_and_meta` |
+| An end-to-end audio model, **not** the browser's Web Speech API | **Gemini 2.5 Flash** takes raw audio and returns transcript, translation and verdict in one call. Browser speech recognition is never used | `app/analyzer.py` | `tests/test_gemini.py` |
+| Process the call in short chunks so the warning appears **mid-call** | 5-second chunks of *played* audio, analysed strictly in order with the call so far as context; the UI shows **Warned at 0:20 / 0:57** | `web/audio.js`, `web/app.js` (`pump`), `scripts/evaluate.py` (time to warning) | `tests/js/audio.test.mjs` (chunk timing) |
+| Flag it as a scam and warn the user | Full-screen warning, call audio ducked, phone vibrates, warning spoken aloud by **Gemini TTS** | `web/app.js` (`raiseAlert`), `app/speech.py` | `tests/test_api.py` (curated speech); manual browser run with a Gemini stand-in |
+| Name the red flags: **urgency, threats, OTP or money requests, claims of police or bank** | `URGENCY`, `ARREST_THREAT`, `OTP_REQUEST`, `MONEY_REQUEST`, `AUTHORITY` (+ `SECRECY`, `REMOTE_ACCESS`), each with the caller's exact words as evidence | `app/redflags.py`, `app/analyzer.py` (schema enum) | `tests/test_redflags.py` |
+| Explain why in **simple Gujarati or Hindi** ("Police never arrest anyone over a video call") | Hand-written explanation per red flag and per scam type in ગુજરાતી, हिंदी and English. That exact sentence is the `ARREST_THREAT` explanation | `app/redflags.py` (`EXPLAIN`, `SCAM_TYPES`) | `tests/test_redflags.py` (all three languages), `tests/js/core.test.mjs` |
+| One genuine call, to show it **doesn't cry wolf** | Two genuine calls, one of which literally says "OTP"; a two-key risk model where keywords alone can never make a call red | `app/risk.py`, `samples/04_*`, `samples/05_*` | `tests/test_risk.py`, `tests/test_redflags.py` |
+| Elders and first-time smartphone users | Big type with an **A / A+ / A++** control, plain words, spoken warning, one-tap buttons | `web/` | manual browser checks: focus trap, Escape, text size, meter value |
+| "The scam works because the victim is alone on the call" | **Tell my family** (WhatsApp), **Call 1930**, report at cybercrime.gov.in, right on the warning | `web/index.html`, `web/app.js` | – |
+
 <sub>Screens 2–4 were captured from the UI test harness, which stands in for Gemini with scripted verdicts so the flow
 can be shown deterministically. The latency and risk numbers in them are illustrative. Run the app with a key, or
 `scripts/evaluate.py`, for real results.</sub>
@@ -64,10 +82,11 @@ can be shown deterministically. The latency and risk numbers in them are illustr
 8. [Run it locally](#8-run-it-locally)
 9. [Deploy (Render or Cloud Run)](#9-deploy)
 10. [Evaluation](#10-evaluation)
-11. [Privacy, safety and security](#11-privacy-safety-and-security)
-12. [Limitations and roadmap](#12-limitations-and-roadmap)
-13. [Project layout](#13-project-layout)
-14. [Credits](#14-credits)
+11. [Engineering quality](#11-engineering-quality): code quality, efficiency, accessibility, testing
+12. [Privacy, safety and security](#12-privacy-safety-and-security)
+13. [Limitations and roadmap](#13-limitations-and-roadmap)
+14. [Project layout](#14-project-layout)
+15. [Credits](#15-credits)
 
 More detail: [Architecture](docs/ARCHITECTURE.md) · [Demo runbook and pitch](docs/DEMO.md) · [Evaluation method](docs/EVALUATION.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
 
@@ -255,7 +274,7 @@ Without uv: `python -m venv .venv && . .venv/bin/activate && pip install fastapi
 Checks (the same ones CI runs on every push, see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
 
 ```bash
-make test        # ruff lint + format, 39 pytest tests with coverage (97%, CI fails under 90%), 5 node:test tests
+make test        # ruff lint + format, mypy --strict, 54 pytest tests (98% coverage, CI fails under 90%), 11 node:test tests
 make eval        # replays every sample through Gemini and reports accuracy + time to warning (needs a key)
 ```
 
@@ -263,9 +282,12 @@ make eval        # replays every sample through Gemini and reports accuracy + ti
 |---|---|
 | `tests/test_redflags.py` | Every flag has gu/hi/en text; keyword rules catch each scripted scam and nothing in the genuine delivery call; the genuine bank call that says "OTP" stays SAFE |
 | `tests/test_risk.py` | Two-key fusion: model alone can alarm, rules alone can't, combo floor, sticky risk, injection backstop |
-| `tests/test_api.py` | API contract, model + rule fusion, input validation (400/413/415/422/503), curated-only speech, no leaked errors, rate limits and the hard ceiling |
+| `tests/test_api.py` | API contract, input validation (400/413/415/422/503), curated-only speech, no leaked errors, 429s, CSP and security headers, gzip on text but not audio, cache policy |
+| `tests/test_pipeline.py` | Rules add flags Gemini missed (labelled by source); unknown client flags ignored; history carries over |
+| `tests/test_ratelimit.py` | Per-client window, fair share, hard ceiling under rotating IPs, O(1) LRU eviction, trusted `X-Forwarded-For` parsing, IPv6 /64 grouping |
 | `tests/test_gemini.py` | Gemini request/response handling against a fake client: schema, output cleaning, retry, untrusted-context delimiters, TTS + cache, `.env` loading |
-| `tests/js/audio.test.mjs` | Browser audio: 16 kHz downsampling, WAV header and clamping, base64, 5-second chunk timing, tail handling |
+| `tests/js/audio.test.mjs` | Browser audio: 16 kHz downsampling, WAV header and clamping, base64, 5-second chunk timing, tail handling, silence gate |
+| `tests/js/core.test.mjs` | UI logic: severity order, context trimming, transcript parsing, warnings always come from hand-written text |
 
 CI also builds the Docker image and smoke-tests it.
 
@@ -273,10 +295,10 @@ API (interactive docs at `/api/docs`):
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/analyze` | Analyse one chunk: `{audio_b64, mime, lang, t_start, t_end, state}` → risk, level, flags, transcript, warning |
+| `POST` | `/api/analyze` | Analyse one chunk: `{audio_b64, mime, lang, t_start, t_end, state}` → risk, level, flags with evidence, transcript, scam type |
 | `POST` | `/api/speak` | Speak the warning with Gemini TTS: `{lang, flag}` → `audio/wav`. Only hand-written text is spoken. |
 | `GET` | `/api/samples` | The sample calls |
-| `GET` | `/api/meta` | Red-flag labels, explanations and headlines in all three languages |
+| `GET` | `/api/meta` | Red-flag labels, explanations, scam-type explanations and headlines in all three languages |
 | `GET` | `/api/health` | Model names and whether a key is configured |
 
 ## 9. Deploy
@@ -315,7 +337,52 @@ It writes everything, including the per-chunk risk timeline, to `eval-results.js
 
 What "good" means, and how to read the results: [docs/EVALUATION.md](docs/EVALUATION.md).
 
-## 11. Privacy, safety and security
+## 11. Engineering quality
+
+### Code quality
+
+- **Small modules with one job each.** `main.py` only has routes; models in `schemas.py`, the scoring pipeline in
+  `pipeline.py` (shared by the API and the offline evaluation, so both score identically), abuse limits in
+  `ratelimit.py`, HTTP hardening in `web.py`. In the browser: pure logic in `core.js`, network in `api.js`, audio in
+  `audio.js`, the controller in `app.js`.
+- **Typed end to end.** `mypy --strict` passes with the pydantic plugin; typed request **and** response models
+  (`AnalyzeResponse`) generate an accurate OpenAPI spec at `/api/docs`.
+- **Lint and format enforced:** ruff (pycodestyle, pyflakes, isort, bugbear, pyupgrade, simplify, bandit rules).
+- **One source of truth** for every user-facing sentence (`app/redflags.py`, served by `/api/meta`).
+
+### Efficiency
+
+| Where | What we do | Why it matters |
+|---|---|---|
+| Audio | Downmix to **16 kHz mono 16-bit** in the browser | ~6× smaller than 48 kHz stereo; ~160 KB per 5-second chunk |
+| Audio | **Silent chunks are never sent** (RMS gate, about −42 dBFS) | Saves a Gemini call and its latency during pauses and hold music |
+| Context | Browser sends only the last 2,500 characters of transcript, the most the server reads | Request size stays flat however long the call runs |
+| Model | Thinking turned down (`thinking_budget=0` on 2.5 Flash) | Each chunk returns well inside its 5-second budget |
+| Network | One shared Gemini client (connection pooling); TTS results cached | No reconnect per chunk; the same warning is never synthesised twice |
+| HTTP | Gzip for HTML/JS/CSS/JSON, **not** for audio; `ETag` revalidation for UI assets; samples cached for a day | Less transfer without wasting CPU compressing WAV |
+| Server | Stateless; rate-limiter bookkeeping is O(1) per request (LRU `OrderedDict`) | Scales to zero and out to many instances; no database |
+
+### Accessibility
+
+- **Text size control** (A / A+ / A++, remembered per device); all sizes in `rem` so everything scales.
+- **Keyboard:** skip link, visible `:focus-visible` outline, focus moves to **Cut the call** when the warning opens,
+  stays inside the dialog (focus trap), Escape closes it and focus returns where it was.
+- **Screen readers:** the risk meter is a `role="meter"` with a spoken value ("92 / 100, Scam"); banner and red flags
+  are live regions; transcript bubbles say who is speaking; language buttons carry their own `lang`.
+- **Respects the OS:** dark mode, `prefers-reduced-motion`, `prefers-contrast: more`.
+- **Three languages** for every word on screen and every spoken warning; ≥ 44 px touch targets; works at phone width.
+
+### Testing
+
+```bash
+make test   # ruff + mypy --strict, 54 pytest tests (98% coverage, CI fails under 90%), 11 node:test tests
+```
+
+Every suite is listed in [section 8](#8-run-it-locally). CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))
+runs lint, types, tests, the JS tests and a Docker build plus smoke test on every push. Dependabot keeps
+dependencies, Actions and the base image current.
+
+## 12. Privacy, safety and security
 
 - **No recording is kept.** Audio chunks go from the browser to the Sajag server to Gemini and are discarded. The
   server has no database and writes no audio or transcripts to disk or logs.
@@ -340,7 +407,7 @@ What "good" means, and how to read the results: [docs/EVALUATION.md](docs/EVALUA
 - **Advice is curated.** What the elder reads in the red-flag explanations is fixed, reviewed text, not model output.
 - **Sajag assists; it does not decide.** It never hangs up on its own. The person stays in control.
 
-## 12. Limitations and roadmap
+## 13. Limitations and roadmap
 
 Honest limits today:
 
@@ -358,24 +425,30 @@ Next:
 5. **More languages**: Marathi, Tamil, Telugu, Bengali, Punjabi.
 6. **Caller reputation**: combine with reported-number lists (Sanchar Saathi / Chakshu) where available.
 
-## 13. Project layout
+## 14. Project layout
 
 ```
 app/
-  main.py          FastAPI app: routes, validation, static files, security headers
+  main.py          FastAPI routes only
+  schemas.py       Typed, bounded request/response models
+  pipeline.py      Rules + fusion for one verdict (shared by API and evaluation)
   analyzer.py      Gemini audio call: system prompt, JSON schema, retry
-  redflags.py      Red-flag taxonomy, weights, keyword rules, hand-written explanations (gu/hi/en)
+  ratelimit.py     Per-client, fair-share and hard-ceiling limits (O(1) LRU)
+  web.py           Security headers, CSP, selective gzip, cache policy
+  redflags.py      Red-flag taxonomy, weights, keyword rules, hand-written explanations per flag and scam type (gu/hi/en)
   risk.py          Two-key fusion, sticky risk, thresholds
   speech.py        Gemini TTS for the spoken warning; WAV and resampling helpers
   config.py        Environment and .env loading
 web/
   index.html       Single page: sources, phone, guardian panel, warning overlay
-  audio.js         File/mic capture, 5 s chunking, 16 kHz WAV encoding
-  app.js           Call lifecycle, ordered analysis queue, rendering, warning, TTS
+  core.js          Pure UI logic (severity, context trimming, transcript parsing, warning text)
+  api.js           All network calls
+  audio.js         File/mic capture, 5 s chunking, silence gate, 16 kHz WAV encoding
+  app.js           Controller: call lifecycle, ordered queue, rendering, warning, focus management
   i18n.js          UI strings in Gujarati, Hindi, English
   style.css        Elder-friendly, high-contrast styles (light and dark)
 samples/           Five .wav calls + their JSON scripts
-tests/             pytest suites (rules, risk, API, Gemini client) and tests/js (node:test for web/audio.js)
+tests/             pytest suites (rules, risk, pipeline, rate limits, API, Gemini client) and tests/js (node:test)
 .github/workflows/ CI: lint, tests + coverage, JS tests, Docker build + smoke test
 Makefile           make run / test / eval / samples / docker
 render.yaml        One-click Render deploy
@@ -386,7 +459,7 @@ docs/              Architecture, demo runbook, evaluation method
 Dockerfile         Cloud Run container
 ```
 
-## 14. Credits
+## 15. Credits
 
 - **Google Gemini**: `gemini-2.5-flash` for audio understanding, `gemini-2.5-flash-preview-tts` for the spoken warning
   and the sample calls. **Google Cloud Run** for hosting.

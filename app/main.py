@@ -1,125 +1,60 @@
-"""Sajag web server: serves the UI and the chunk-analysis API.
+"""Sajag web server: the UI and the chunk-analysis API.
 
 The server is stateless. The browser keeps the call state (transcript so far, flags seen, last model score) and sends it
-with every chunk, so this runs happily on Cloud Run with any number of instances.
+with every chunk, so this scales to zero and runs on any number of instances.
+
+Module map: schemas.py (request/response models) · pipeline.py (rules + fusion) · analyzer.py (Gemini audio) ·
+speech.py (Gemini TTS) · ratelimit.py (abuse and cost limits) · web.py (headers, CSP, compression, caching).
 """
 
 import base64
 import binascii
-import ipaddress
 import json
 import logging
-import time
-from collections import defaultdict, deque
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
 
-from . import analyzer, config, risk, speech
+from . import analyzer, config, pipeline, risk, speech, web
 from . import redflags as rf
+from .ratelimit import Policy, RateLimited, RateLimiter, client_key
+from .schemas import ALLOWED_MIME, MAX_AUDIO_BYTES, AnalyzeResponse, ChunkRequest, SpeakRequest
 
-app = FastAPI(title="Sajag", version="1.0.0", docs_url="/api/docs", redoc_url=None)
 log = logging.getLogger("sajag")
 
-ALLOWED_MIME = {"audio/wav", "audio/x-wav", "audio/wave", "audio/webm", "audio/ogg", "audio/mpeg", "audio/mp4"}
-# 16 kHz mono 16-bit WAV is 32 KB/s; this cap also bounds webm/ogg uploads.
-MAX_AUDIO_BYTES = config.MAX_CHUNK_SECONDS * 32_000 + 4_096
+app = FastAPI(
+    title="Sajag",
+    version="1.1.0",
+    description="Real-time scam-call guardian: listens in 5-second chunks and warns in Gujarati, Hindi or English.",
+    docs_url="/api/docs",
+    redoc_url=None,
+)
+app.add_middleware(web.SelectiveGZip)
 
-
-class CallState(BaseModel):
-    transcript: str = Field("", max_length=20_000)
-    flags: list[str] = Field(default_factory=list, max_length=50)
-    model_risk: int = Field(0, ge=0, le=100)
-
-
-class ChunkRequest(BaseModel):
-    audio_b64: str = Field(..., max_length=MAX_AUDIO_BYTES * 4 // 3 + 8)
-    mime: str = "audio/wav"
-    lang: str = Field("gu", pattern="^(gu|hi|en)$")
-    t_start: float = Field(0, ge=0, le=36_000)
-    t_end: float = Field(5, ge=0, le=36_000)
-    state: CallState = Field(default_factory=CallState)
-
-
-class SpeakRequest(BaseModel):
-    """Sajag only ever speaks text written by hand on the server: the fixed headline plus the curated explanation for
-    one red-flag code. Model output is never spoken, so a caller can't get Sajag to read out a number or a link."""
-
-    lang: str = Field("gu", pattern="^(gu|hi|en)$")
-    flag: str | None = Field(None, max_length=32)
-
-
-# Per-client rate limits, so the public endpoints can't be used as a free proxy to a paid key. In-memory, per instance:
-# good enough to stop casual abuse; put Cloud Armor or API Gateway in front for anything bigger.
-RATE_LIMITS = {"analyze": (40, 60), "speak": (6, 60)}  # (requests, per seconds)
-GLOBAL_LIMITS = {"analyze": 600, "speak": 60}  # per instance, per window: ~50 concurrent live calls
-# When the shared budget is used up, only clients above their fair share are refused, so a few heavy clients can't lock
-# out a normal live call (which needs 12 analyses a minute).
-FAIR_SHARE = {"analyze": 15, "speak": 2}
-HARD_GLOBAL = {"analyze": 1200, "speak": 120}  # absolute ceiling per instance, per window: nobody gets past this
-MAX_TRACKED = 10_000
-_global: dict[str, deque] = defaultdict(deque)
-_hits: dict[tuple[str, str], deque] = defaultdict(deque)
-
-
-def client_key(request: Request) -> str:
-    """Who to rate-limit. Behind a proxy, take the IP the *trusted* proxy appended to X-Forwarded-For, counting from the
-    right (entries further left are client-supplied and spoofable). IPv6 clients are grouped by /64."""
-    ip = request.client.host if request.client else "unknown"
-    n = config.CLIENT_IP_FROM_RIGHT
-    if n > 0:
-        parts = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
-        if len(parts) >= n:
-            ip = parts[-n]
-    try:
-        addr = ipaddress.ip_address(ip)
-        if addr.version == 6:
-            return str(ipaddress.ip_network(f"{addr}/64", strict=False))
-    except ValueError:
-        pass
-    return ip
-
-
-def _prune(now: float) -> None:
-    """Drop only expired entries; never reset live counters."""
-    for key in list(_hits):
-        q = _hits[key]
-        window = RATE_LIMITS[key[0]][1]
-        while q and now - q[0] > window:
-            q.popleft()
-        if not q:
-            del _hits[key]
+# A live call needs 12 analyses a minute (one per 5-second chunk).
+POLICIES = {
+    "analyze": Policy(per_client=40, window_s=60, fair_share=15, soft_global=600, hard_global=1200),
+    "speak": Policy(per_client=6, window_s=60, fair_share=2, soft_global=60, hard_global=120),
+}
+limiter = RateLimiter(POLICIES)
 
 
 def rate_limit(request: Request, bucket: str) -> None:
-    limit, window = RATE_LIMITS[bucket]
-    now = time.monotonic()
-    key = (bucket, client_key(request))
-    if key not in _hits and len(_hits) >= MAX_TRACKED:
-        _prune(now)
-        if len(_hits) >= MAX_TRACKED:  # still full: evict the least recently active client, never lock everyone out
-            del _hits[min(_hits, key=lambda k: _hits[k][-1])]
-    # Shared cap per endpoint: whatever happens to individual counters, the instance never exceeds this budget.
-    g = _global[bucket]
-    while g and now - g[0] > window:
-        g.popleft()
-    q = _hits[key]
-    while q and now - q[0] > window:
-        q.popleft()
-    if (
-        len(q) >= limit
-        or len(g) >= HARD_GLOBAL[bucket]
-        or (len(g) >= GLOBAL_LIMITS[bucket] and len(q) >= FAIR_SHARE[bucket])
-    ):
-        raise HTTPException(429, "Too many requests, slow down")
-    q.append(now)
-    g.append(now)
+    client = client_key(
+        request.client.host if request.client else None,
+        request.headers.get("x-forwarded-for", ""),
+        config.CLIENT_IP_FROM_RIGHT,
+    )
+    try:
+        limiter.check(bucket, client)
+    except RateLimited:
+        raise HTTPException(429, "Too many requests, slow down") from None
 
 
 @app.get("/api/health")
-def health():
+def health() -> dict[str, Any]:
     return {
         "ok": True,
         "model": config.MODEL,
@@ -129,38 +64,40 @@ def health():
 
 
 @app.get("/api/meta")
-def meta():
+def meta() -> dict[str, Any]:
     """Labels, explanations and headlines in all three languages, so the UI has one source of truth."""
     return {
         "labels": rf.LABELS,
         "explain": rf.EXPLAIN,
         "headlines": rf.HEADLINES,
+        "scam_types": rf.SCAM_TYPES,
         "thresholds": {"scam": risk.SCAM_AT, "caution": risk.CAUTION_AT},
     }
 
 
 @app.get("/api/samples")
-def samples():
+def samples() -> list[dict[str, str]]:
     out = []
     for meta_file in sorted((config.SAMPLES_DIR / "scripts").glob("*.json")):
-        info = json.loads(meta_file.read_text(encoding="utf-8"))
         wav = config.SAMPLES_DIR / f"{meta_file.stem}.wav"
-        if wav.is_file():
-            out.append(
-                {
-                    "id": meta_file.stem,
-                    "title": info["title"],
-                    "language": info["language"],
-                    "expected": info["expected"],
-                    "caller_id": info.get("caller_id", "Unknown number"),
-                    "url": f"/samples/{wav.name}",
-                }
-            )
+        if not wav.is_file():
+            continue
+        info = json.loads(meta_file.read_text(encoding="utf-8"))
+        out.append(
+            {
+                "id": meta_file.stem,
+                "title": info["title"],
+                "language": info["language"],
+                "expected": info["expected"],
+                "caller_id": info.get("caller_id", "Unknown number"),
+                "url": f"/samples/{wav.name}",
+            }
+        )
     return out
 
 
-@app.post("/api/analyze")
-async def analyze(req: ChunkRequest, request: Request):
+@app.post("/api/analyze", response_model=AnalyzeResponse)
+async def analyze(req: ChunkRequest, request: Request) -> dict[str, Any]:
     rate_limit(request, "analyze")
     if req.mime not in ALLOWED_MIME:
         raise HTTPException(415, "Unsupported audio type")
@@ -182,27 +119,18 @@ async def analyze(req: ChunkRequest, request: Request):
         log.exception("Gemini analysis failed")
         raise HTTPException(502, "Analysis temporarily unavailable") from None
 
-    # Second opinion: deterministic keyword rules over what Gemini heard (original script + English gloss).
-    model_codes = {f["code"] for f in verdict["flags"]}
-    rule_hits = [h for h in rf.match_rules(verdict["transcript"], verdict["english"]) if h["code"] not in model_codes]
-    new_flags = [{**f, "source": "gemini"} for f in verdict["flags"]] + [{**h, "source": "rules"} for h in rule_hits]
-
-    all_codes = set(prev_flags) | {f["code"] for f in new_flags}
-    fused = risk.fuse(verdict["scam_probability"], req.state.model_risk, all_codes)
-
+    assessment = pipeline.assess(verdict, prev_flags, req.state.model_risk)
     return {
         "transcript": verdict["transcript"],
         "english": verdict["english"],
-        "flags": new_flags,
-        "all_flags": sorted(all_codes),
         "scam_type": verdict["scam_type"],
         "latency_ms": verdict["latency_ms"],
-        **fused,
+        **assessment,
     }
 
 
 @app.post("/api/speak")
-async def speak(req: SpeakRequest, request: Request):
+async def speak(req: SpeakRequest, request: Request) -> Response:
     rate_limit(request, "speak")
     if not config.GEMINI_API_KEY:
         raise HTTPException(503, "Gemini is not configured")
@@ -216,15 +144,18 @@ async def speak(req: SpeakRequest, request: Request):
     except Exception:
         log.exception("Gemini TTS failed")
         raise HTTPException(502, "Speech temporarily unavailable") from None
-    return Response(wav, media_type="audio/wav", headers={"Cache-Control": "no-store"})
+    return Response(wav, media_type="audio/wav")
 
 
 @app.middleware("http")
-async def security_headers(request, call_next):
+async def headers(request: Request, call_next):  # type: ignore[no-untyped-def]
     resp = await call_next(request)
-    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
-    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    resp.headers.setdefault("Permissions-Policy", "microphone=(self), camera=(), geolocation=()")
+    path = request.url.path
+    for name, value in web.security_headers_for(path).items():
+        resp.headers.setdefault(name, value)
+    cache = web.cache_control_for(path)
+    if cache:
+        resp.headers.setdefault("Cache-Control", cache)
     return resp
 
 
@@ -232,6 +163,6 @@ app.mount("/samples", StaticFiles(directory=config.SAMPLES_DIR), name="samples")
 app.mount("/static", StaticFiles(directory=config.WEB_DIR), name="static")
 
 
-@app.get("/")
-def index():
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
     return FileResponse(config.WEB_DIR / "index.html")

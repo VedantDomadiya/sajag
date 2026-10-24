@@ -3,6 +3,7 @@
 import asyncio
 import json
 import time
+from typing import Any
 
 from google import genai
 from google.genai import types
@@ -85,19 +86,21 @@ def client() -> genai.Client:
     return _client
 
 
+def _thinking_config() -> types.ThinkingConfig:
+    """Latency matters more than deep reasoning here: every chunk must come back before the next one is due."""
+    if config.MODEL.startswith("gemini-2.5"):
+        return types.ThinkingConfig(thinking_budget=0)
+    return types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)
+
+
 def _gen_config(lang: str) -> types.GenerateContentConfig:
-    kwargs = dict(
+    return types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT.replace("{lang}", LANG_NAMES.get(lang, LANG_NAMES["hi"])),
         temperature=0.2,
         response_mime_type="application/json",
         response_json_schema=RESPONSE_SCHEMA,
+        thinking_config=_thinking_config(),
     )
-    # Latency matters more than deep reasoning here: every chunk must come back before the next one is due.
-    if config.MODEL.startswith("gemini-2.5"):
-        kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
-    else:
-        kwargs["thinking_config"] = types.ThinkingConfig(thinking_level="low")
-    return types.GenerateContentConfig(**kwargs)
 
 
 def _context_text(prev_transcript: str, prev_flags: list[str], t_start: float, t_end: float) -> str:
@@ -115,7 +118,7 @@ def _context_text(prev_transcript: str, prev_flags: list[str], t_start: float, t
 
 async def analyze_chunk(
     audio: bytes, mime: str, lang: str, prev_transcript: str, prev_flags: list[str], t_start: float, t_end: float
-) -> dict:
+) -> dict[str, Any]:
     """Return Gemini's parsed verdict for one chunk, plus timing. Retries once on a transient failure."""
     contents = [
         types.Part.from_bytes(data=audio, mime_type=mime),
@@ -128,6 +131,8 @@ async def analyze_chunk(
             resp = await client().aio.models.generate_content(
                 model=config.MODEL, contents=contents, config=_gen_config(lang)
             )
+            if not resp.text:
+                raise ValueError("empty response from Gemini")
             data = json.loads(resp.text)
             data["latency_ms"] = round((time.perf_counter() - started) * 1000)
             return _clean(data)
@@ -137,7 +142,7 @@ async def analyze_chunk(
     raise RuntimeError(f"Gemini analysis failed: {last_err}")
 
 
-def _clean(data: dict) -> dict:
+def _clean(data: dict[str, Any]) -> dict[str, Any]:
     data["scam_probability"] = max(0, min(100, int(data.get("scam_probability", 0))))
     data["flags"] = [f for f in data.get("flags", []) if f.get("code") in rf.CODES]
     for key in ("transcript", "english", "reasoning", "scam_type"):

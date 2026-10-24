@@ -1,6 +1,12 @@
 // UI strings in Gujarati, Hindi and English. Red-flag labels and explanations come from /api/meta (app/redflags.py).
 window.I18N = {
   gu: {
+    skipToCall: "કૉલ પર જાઓ",
+    textSize: "અક્ષરનું કદ",
+    you: "તમે", caller: "ફોન કરનાર",
+    heard: "સંભળાયું", notHeard: "હજી નથી સંભળાયું",
+    silent: "શાંત",
+    errBusy: "ઘણી બધી વિનંતીઓ. થોડી વારમાં ફરી પ્રયાસ થશે…",
     tagline: "આ કૉલમાં તમે એકલા નથી.",
     pickCall: "કૉલ વગાડો",
     pickHint: "સજાગ કૉલને 5-સેકન્ડના ટુકડામાં સાંભળે છે અને કૉલ ચાલુ હોય ત્યારે જ ચેતવે છે.",
@@ -35,6 +41,12 @@ window.I18N = {
     errNet: "Gemini સુધી પહોંચી શકાયું નહીં. ફરી પ્રયાસ કરી રહ્યા છીએ…",
   },
   hi: {
+    skipToCall: "कॉल पर जाएँ",
+    textSize: "अक्षर का आकार",
+    you: "आप", caller: "कॉल करने वाला",
+    heard: "सुना गया", notHeard: "अभी नहीं सुना",
+    silent: "शांत",
+    errBusy: "बहुत सारे अनुरोध। थोड़ी देर में फिर कोशिश होगी…",
     tagline: "इस कॉल पर आप अकेले नहीं हैं।",
     pickCall: "कॉल चलाइए",
     pickHint: "सजग कॉल को 5-सेकंड के टुकड़ों में सुनता है और कॉल चलते-चलते ही चेतावनी देता है।",
@@ -69,6 +81,12 @@ window.I18N = {
     errNet: "Gemini तक नहीं पहुँच पाए। फिर से कोशिश कर रहे हैं…",
   },
   en: {
+    skipToCall: "Skip to the call",
+    textSize: "Text size",
+    you: "You", caller: "Caller",
+    heard: "heard", notHeard: "not heard yet",
+    silent: "silent",
+    errBusy: "Too many requests. Retrying shortly…",
     tagline: "You are not alone on this call.",
     pickCall: "Play a call",
     pickHint: "Sajag listens in 5-second pieces and warns you while the call is still going.",

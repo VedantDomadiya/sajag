@@ -1,6 +1,15 @@
 // Audio plumbing: play a call (file) or tap the microphone, and cut either into fixed-length chunks of 16 kHz mono WAV.
 (function () {
   const TARGET_RATE = 16000;
+  // Below this RMS a chunk is silence (about -42 dBFS): it is not sent, which saves a Gemini call and its latency.
+  const SILENCE_RMS = 0.008;
+
+  function rms(samples) {
+    if (!samples.length) return 0;
+    let sum = 0;
+    for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+    return Math.sqrt(sum / samples.length);
+  }
 
   function toMono(buffer) {
     if (buffer.numberOfChannels === 1) return buffer.getChannelData(0);
@@ -78,7 +87,10 @@
     emit(t0, t1) {
       const a = Math.floor(t0 * this.rate), b = Math.min(this.mono.length, Math.floor(t1 * this.rate));
       if (b - a < this.rate * 0.8) return; // skip slivers under 0.8 s
-      this.onChunk({ wav: encodeWav(this.mono.subarray(a, b), this.rate), t0, t1: b / this.rate });
+      const slice = this.mono.subarray(a, b);
+      const end = b / this.rate;
+      if (rms(slice) < SILENCE_RMS) this.onChunk({ silent: true, t0, t1: end });
+      else this.onChunk({ wav: encodeWav(slice, this.rate), t0, t1: end });
     }
     finish() {
       if (this.stopped) return;
@@ -127,7 +139,8 @@
       let o = 0;
       for (const p of this.parts) { all.set(p, o); o += p.length; }
       const t1 = this.t0 + this.count / this.rate;
-      this.onChunk({ wav: encodeWav(all, this.rate), t0: this.t0, t1 });
+      if (rms(all) < SILENCE_RMS) this.onChunk({ silent: true, t0: this.t0, t1 });
+      else this.onChunk({ wav: encodeWav(all, this.rate), t0: this.t0, t1 });
       this.t0 = t1; this.parts = []; this.count = 0;
     }
     duck() { /* nothing to duck: the call plays on the phone itself */ }
@@ -141,5 +154,5 @@
     }
   }
 
-  window.SajagAudio = { FileCall, MicCall, toBase64, encodeWav, downsample, TARGET_RATE };
+  window.SajagAudio = { FileCall, MicCall, toBase64, encodeWav, downsample, rms, TARGET_RATE, SILENCE_RMS };
 })();

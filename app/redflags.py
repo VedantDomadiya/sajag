@@ -78,6 +78,30 @@ EXPLAIN = {
     },
 }
 
+# What kind of scam it is, in one plain sentence. Shown on the warning screen when Gemini recognises the pattern.
+SCAM_TYPES = {
+    "DIGITAL_ARREST": {
+        "en": "This is a 'digital arrest' scam. There is no such thing in Indian law: police never question or arrest anyone over a video call, and never ask for money to clear your name.",
+        "hi": "यह 'डिजिटल अरेस्ट' फ़्रॉड है। क़ानून में ऐसा कुछ नहीं होता: पुलिस कभी वीडियो कॉल पर पूछताछ या गिरफ़्तारी नहीं करती और नाम साफ़ करने के लिए पैसे नहीं माँगती।",
+        "gu": "આ 'ડિજિટલ અરેસ્ટ' ફ્રોડ છે. કાયદામાં આવું કંઈ નથી: પોલીસ ક્યારેય વિડિયો કૉલ પર પૂછપરછ કે ધરપકડ કરતી નથી અને નામ સાફ કરવા પૈસા માંગતી નથી.",
+    },
+    "FAKE_KYC": {
+        "en": "This is a fake KYC scam. Banks update KYC only at the branch or in their official app, never by asking for an OTP on a call.",
+        "hi": "यह नकली KYC फ़्रॉड है। बैंक KYC सिर्फ़ ब्रांच में या अपने ऑफ़िशियल ऐप में अपडेट करते हैं, कभी फ़ोन पर OTP माँगकर नहीं।",
+        "gu": "આ નકલી KYC ફ્રોડ છે. બેંક KYC ફક્ત બ્રાન્ચમાં કે પોતાની સત્તાવાર એપમાં અપડેટ કરે છે, ક્યારેય ફોન પર OTP માંગીને નહીં.",
+    },
+    "FAKE_COURIER": {
+        "en": "This is a fake courier scam. Couriers and customs never ask you to pay duty over a call or to install an app to release a parcel.",
+        "hi": "यह नकली कूरियर फ़्रॉड है। कूरियर या कस्टम्स कभी फ़ोन पर ड्यूटी भरने या पार्सल छुड़ाने के लिए ऐप इंस्टॉल करने को नहीं कहते।",
+        "gu": "આ નકલી કુરિયર ફ્રોડ છે. કુરિયર કે કસ્ટમ્સ ક્યારેય ફોન પર ડ્યુટી ભરવા કે પાર્સલ છોડાવવા એપ ઇન્સ્ટોલ કરવાનું કહેતા નથી.",
+    },
+    "OTHER": {
+        "en": "The caller is using a known scam pattern.",
+        "hi": "सामने वाला फ़्रॉड का जाना-पहचाना तरीका अपना रहा है।",
+        "gu": "સામેવાળો ફ્રોડની જાણીતી રીત અપનાવી રહ્યો છે.",
+    },
+}
+
 HEADLINES = {
     "SCAM": {
         "en": "Warning! This is a scam call. Hang up now.",
@@ -229,7 +253,7 @@ _RULES = {
 _COMPILED = {code: [re.compile(p, re.IGNORECASE) for p in pats] for code, pats in _RULES.items()}
 
 
-def match_rules(*texts: str) -> list[dict]:
+def match_rules(*texts: str) -> list[dict[str, str]]:
     """Return one {code, evidence} per flag whose keywords appear in any of the given texts."""
     found = []
     for code, patterns in _COMPILED.items():

@@ -142,3 +142,17 @@ def test_dotenv_loader(tmp_path, monkeypatch):
     assert os.environ["SAJAG_TEST_B"] == "from-env"  # real env vars win
     config._load_dotenv(tmp_path / "missing")  # no error
     monkeypatch.delenv("SAJAG_TEST_A")
+
+
+def test_empty_gemini_response_is_retried_then_reported(monkeypatch):
+    fake_client(monkeypatch, [SimpleNamespace(text=""), SimpleNamespace(text=None)])
+    with pytest.raises(RuntimeError, match="empty response"):
+        run(analyzer.analyze_chunk(b"RIFF", "audio/wav", "gu", "", [], 0, 5))
+
+
+def test_tts_without_audio_fails_cleanly(monkeypatch):
+    empty = SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(parts=[]))])
+    fake_client(monkeypatch, [empty])
+    speech._cache.clear()
+    with pytest.raises(ValueError, match="no audio"):
+        run(speech.speak("x", "en"))
