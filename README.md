@@ -12,7 +12,36 @@ and explains why in the listener's own language, out loud:
 
 Powered by **Gemini** (audio understanding + speech generation). Built to run on **Google Cloud Run**.
 
+**Challenge:** Voice AI Scam Shield
+
 </div>
+
+<p align="center">
+  <img src="docs/img/03-scam-warning.jpg" width="820" alt="Sajag's full-screen scam warning in Hindi, naming the red flags it heard: threat of arrest, keep it secret, claims to be police">
+</p>
+
+## ⏱️ For judges: the 2-minute tour
+
+| | |
+|---|---|
+| **What** | A second listener on the phone call. It hears Gujarati and Hindi, spots a scam *while the call is still going*, and warns out loud, in the listener's language, with the reasons. |
+| **Why it matters** | Digital-arrest, fake KYC and fake courier scams work because the victim is alone on the call. Sajag makes sure they aren't. |
+| **How** | The call is cut into 5-second pieces → **Gemini 2.5 Flash** listens to each one (audio in, no browser speech-to-text) → structured verdict with red flags and evidence → a two-key risk model → a spoken warning from **Gemini TTS**. |
+| **Proof it doesn't cry wolf** | Two genuine calls (a delivery person, a bank branch that even says "OTP") are in the samples and in the tests. |
+| **Try it** | `cp .env.example .env` (add a Gemini key) → `uv sync` → `uv run uvicorn app.main:app` → open `localhost:8000` → click a sample call. |
+| **Read more** | [How it works](#4-how-it-works) · [Red flags](#5-the-red-flags) · [Two-key model](#6-not-crying-wolf-the-two-key-risk-model) · [Architecture](docs/ARCHITECTURE.md) · [Demo script](docs/DEMO.md) |
+
+### Screens
+
+| 1 · Pick a call (Gujarati UI) | 2 · Listening mid-call (Hindi) |
+|---|---|
+| <img src="docs/img/01-home.jpg" alt="Home screen with sample calls, phone and guardian panel"> | <img src="docs/img/02-live-call.jpg" alt="Live transcript in Devanagari with English gloss; red-flag chips lighting up; risk at 55, Careful"> |
+| **3 · Scam confirmed: the warning takes over** | **4 · Same warning on a phone** |
+| <img src="docs/img/03-scam-warning.jpg" alt="Full-screen warning in Hindi with reasons and actions"> | <img src="docs/img/04-mobile-warning.jpg" width="260" alt="Mobile layout of the warning"> |
+
+<sub>Screens 2–4 were captured from the UI test harness, which stands in for Gemini with scripted verdicts so the flow
+can be shown deterministically. The latency and risk numbers in them are illustrative. Run the app with a key, or
+`scripts/evaluate.py`, for real results.</sub>
 
 ---
 
