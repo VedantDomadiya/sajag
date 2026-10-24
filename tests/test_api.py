@@ -139,18 +139,14 @@ def test_unknown_client_flags_are_dropped(client):
     assert set(r.json()["all_flags"]) <= set(main.rf.CODES)
 
 
-def test_model_text_with_numbers_or_links_is_dropped():
-    assert main.safe_text("पुलिस कभी फ़ोन पर गिरफ़्तार नहीं करती।")
-    assert main.safe_text("Careful. Police never call like this. Cut the call.")
-    assert main.safe_text("પોલીસ ક્યારેય ફોન પર ધરપકડ કરતી નથી. ફોન કાપો.")
-    for bad in ["Call 9876543210 now", "Visit www.example.com", "सत्यापन के लिए ९८७६ पर कॉल करें", "a@b",
-                "Go to example . com", "Dial ૯૮૭", "Use code ½", "Pay on upi:scam", "Visit EXAMPLE.COM",
-                "Visit Example. In", "see ઉદાહરણ.ભારત"]:
-        assert main.safe_text(bad) == ""
+def test_no_free_form_model_text_reaches_the_user(client):
+    d = client.post("/api/analyze", json=body()).json()
+    assert "reasoning" not in d and "warning" not in d
 
 
 def test_global_cap_holds_even_when_clients_rotate(client, monkeypatch):
     monkeypatch.setitem(main.GLOBAL_LIMITS, "speak", 2)
+    monkeypatch.setitem(main.FAIR_SHARE, "speak", 1)
     main._hits.clear(); main._global.clear()
     from app import speech
 
@@ -158,9 +154,11 @@ def test_global_cap_holds_even_when_clients_rotate(client, monkeypatch):
         return b"RIFF"
 
     monkeypatch.setattr(speech, "speak", fake_speak)
-    codes = [client.post("/api/speak", json={"lang": "hi"}, headers={"x-forwarded-for": f"9.9.9.{i}"}).status_code
-             for i in range(3)]
-    assert codes[-1] == 429
+    codes = [client.post("/api/speak", json={"lang": "hi"}).status_code for _ in range(3)]
+    assert codes[-1] == 429  # this client is over its fair share once the shared budget is spent
+    # a light client (no requests yet) still gets through even though the shared budget is spent
+    main._hits.clear()
+    assert client.post("/api/speak", json={"lang": "hi"}).status_code == 200
 
 
 def test_full_rate_table_evicts_instead_of_locking_out(client, monkeypatch):
@@ -169,3 +167,19 @@ def test_full_rate_table_evicts_instead_of_locking_out(client, monkeypatch):
     for ip in ("1.1.1.1", "2.2.2.2"):
         main._hits[("analyze", ip)].append(10**12)  # live, far-future timestamps
     assert client.post("/api/analyze", json=body()).status_code == 200
+
+
+def test_hard_global_ceiling_holds_when_client_ips_rotate(client, monkeypatch):
+    from app import speech
+
+    async def fake_speak(text, lang):
+        return b"RIFF"
+
+    monkeypatch.setattr(speech, "speak", fake_speak)
+    monkeypatch.setattr(config, "CLIENT_IP_FROM_RIGHT", 1)
+    monkeypatch.setitem(main.GLOBAL_LIMITS, "speak", 2)
+    monkeypatch.setitem(main.HARD_GLOBAL, "speak", 4)
+    main._hits.clear(); main._global.clear()
+    codes = [client.post("/api/speak", json={"lang": "hi"}, headers={"x-forwarded-for": f"9.9.9.{i}"}).status_code
+             for i in range(6)]
+    assert codes == [200, 200, 200, 200, 429, 429]  # fresh IPs pass the soft cap, never the hard one

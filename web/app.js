@@ -181,7 +181,8 @@
     addChunk(d, chunk);
     addMarker(chunk.t1, d.level);
     renderFlags(); renderLevel(); renderStats();
-    if (d.reasoning) { $("why").hidden = false; $("whyText").textContent = d.reasoning; }
+    const top = topFlag();
+    if (top) { $("why").hidden = false; $("whyText").textContent = meta.explain[top][lang]; }
 
     if (d.level === "SCAM" && !mine.alerted && !mine.ended) raiseAlert(chunk.t1, d);
     else if (d.level === "CAUTION" && !mine.alerted) showBanner("caution", meta.headlines.CAUTION[lang]);

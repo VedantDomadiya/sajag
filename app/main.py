@@ -9,9 +9,7 @@ import binascii
 import ipaddress
 import json
 import logging
-import re
 import time
-import unicodedata
 from collections import defaultdict, deque
 
 from fastapi import FastAPI, HTTPException, Request
@@ -57,6 +55,10 @@ class SpeakRequest(BaseModel):
 # good enough to stop casual abuse; put Cloud Armor or API Gateway in front for anything bigger.
 RATE_LIMITS = {"analyze": (40, 60), "speak": (6, 60)}  # (requests, per seconds)
 GLOBAL_LIMITS = {"analyze": 600, "speak": 60}  # per instance, per window: ~50 concurrent live calls
+# When the shared budget is used up, only clients above their fair share are refused, so a few heavy clients can't lock
+# out a normal live call (which needs 12 analyses a minute).
+FAIR_SHARE = {"analyze": 15, "speak": 2}
+HARD_GLOBAL = {"analyze": 1200, "speak": 120}  # absolute ceiling per instance, per window: nobody gets past this
 MAX_TRACKED = 10_000
 _global: dict[str, deque] = defaultdict(deque)
 _hits: dict[tuple[str, str], deque] = defaultdict(deque)
@@ -106,32 +108,14 @@ def rate_limit(request: Request, bucket: str) -> None:
     q = _hits[key]
     while q and now - q[0] > window:
         q.popleft()
-    if len(q) >= limit or len(g) >= GLOBAL_LIMITS[bucket]:
+    if (
+        len(q) >= limit
+        or len(g) >= HARD_GLOBAL[bucket]
+        or (len(g) >= GLOBAL_LIMITS[bucket] and len(q) >= FAIR_SHARE[bucket])
+    ):
         raise HTTPException(429, "Too many requests, slow down")
     q.append(now)
     g.append(now)
-
-
-# Every warning the user sees or hears is hand-written. The only free-form model text shown is the short English
-# "reasoning" in the Why panel, behind an allowlist: letters, marks, spaces and basic punctuation. Any digit or number
-# character in any script, "@", or anything domain-like (example.com, example . com, .IN) drops it.
-_DOMAIN_LIKE = re.compile(
-    r"[^\W\d_]\.[^\W\d_]|\s\.\s*[^\W\d_]|\.\s*(com|in|net|org|co|io|app|link|xyz|me|info|online|site)\b",
-    re.IGNORECASE | re.UNICODE,
-)
-_ALLOWED_PUNCT = set(" ,.!?'\"()-–—।॥…\n")
-
-
-def safe_text(text: str) -> str:
-    text = text.strip()
-    if not text or len(text) > 220 or _DOMAIN_LIKE.search(text):
-        return ""
-    for ch in text:
-        cat = unicodedata.category(ch)
-        if cat[0] in ("L", "M") or ch in _ALLOWED_PUNCT:
-            continue
-        return ""
-    return text
 
 
 @app.get("/api/health")
@@ -200,7 +184,6 @@ async def analyze(req: ChunkRequest, request: Request):
         "flags": new_flags,
         "all_flags": sorted(all_codes),
         "scam_type": verdict["scam_type"],
-        "reasoning": safe_text(verdict["reasoning"]),
         "latency_ms": verdict["latency_ms"],
         **fused,
     }

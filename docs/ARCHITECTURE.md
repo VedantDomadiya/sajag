@@ -75,7 +75,8 @@ The full system prompt lives in [`app/analyzer.py`](../app/analyzer.py). Its des
   requests like a delivery person asking for the address. "Ordinary calls stay below 20. Use 70+ only for clear red
   flags."
 - **Evidence in the original language.** Every flag must quote the caller's exact words, which the UI shows.
-- **No free-form warning from the model.** Gemini returns codes, evidence, a score and a one-line English reasoning.
+- **No free-form text from the model reaches the user.** Gemini returns codes, evidence, a score and a one-line English
+  reasoning (used in logs and evaluation only).
   Every sentence the elder reads or hears is hand-written in `redflags.py`, so the advice is always correct and a caller
   can't steer what Sajag tells the user.
 
@@ -101,7 +102,7 @@ The full system prompt lives in [`app/analyzer.py`](../app/analyzer.py). Its des
             {"code": "MONEY_REQUEST", "evidence": "…सारा पैसा ट्रांसफर कर…", "source": "rules"}],
   "all_flags": ["AUTHORITY", "MONEY_REQUEST"],
   "risk": 85, "model_risk": 62, "rule_risk": 55, "combo": true, "level": "SCAM",
-  "scam_type": "DIGITAL_ARREST", "reasoning": "...", "latency_ms": 940
+  "scam_type": "DIGITAL_ARREST", "latency_ms": 940
 }
 ```
 
@@ -153,12 +154,13 @@ the "transfer the money" step completes.
   the keyword combo independently forces `CAUTION`.
 - **Only hand-written text is spoken.** `/api/speak` takes a language and a red-flag code and speaks the fixed headline
   plus that flag's curated explanation. Model output is never read aloud, so a caller can't make Sajag say a phone number
-  or a link. No model-written warning is shown either. The only free-form model text on screen is the one-line English
-  reasoning in the "Why" panel, behind an allowlist (letters, marks, basic punctuation; any Unicode digit or number,
-  "@", or anything domain-like, matched case-insensitively, drops it).
+  or a link. No model-written text is shown either: the "Why" panel shows the curated explanation for the top flag.
+  The only model output on screen is the transcript (labelled as what the caller said) and the quoted evidence.
 - **Rate limits.** Per-client sliding window, in memory per instance: 40 `/api/analyze` and 6 `/api/speak` per minute.
   A live call needs 12 analyses a minute. On top of that, a shared cap per endpoint (600 analyses, 60 speeches a
-  minute per instance) holds no matter how clients rotate. The table tracks up to 10,000 clients; when it is full of live clients the
+  minute per instance) holds no matter how clients rotate. When it is spent, only clients above a fair share (15
+  analyses, 2 speeches a minute) are refused, so a few heavy clients can't lock out a normal live call. A hard ceiling at twice the shared cap (1,200 analyses,
+  120 speeches) is never exceeded, however many fresh IPs arrive. The table tracks up to 10,000 clients; when it is full of live clients the
   least recently active one is evicted. That is a deliberate trade-off: an in-process limiter must either fail open
   (evict) or fail closed (refuse every newcomer, which lets one attacker lock out all real users). Defeating it needs
   10,000+ distinct IPs or IPv6 /64s, and against that the real controls are an edge limiter (Cloud Armor rate-based

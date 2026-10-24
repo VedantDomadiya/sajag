@@ -127,7 +127,7 @@ sequenceDiagram
         B->>B: cut chunk, downmix to 16 kHz mono WAV
         B->>S: POST /api/analyze {chunk, transcript so far, flags so far, last score}
         S->>G: audio + context + JSON schema
-        G-->>S: transcript, English gloss, red flags + evidence, scam probability, reasoning
+        G-->>S: transcript, English gloss, red flags + evidence, scam probability
         S->>S: keyword rules (second opinion) + two-key fusion + sticky risk
         S-->>B: risk, level, flags, transcript
         B->>B: update transcript, chips, meter
@@ -304,9 +304,10 @@ What "good" means, and how to read the results: [docs/EVALUATION.md](docs/EVALUA
   follow instructions heard in the call and to treat any attempt to address "the AI" as a scam signal, and the keyword
   combo can still force *Careful* even if the model is talked down.
 - **No free proxy to the key, and no model text read aloud.** `/api/speak` only speaks hand-written text: the fixed
-  headline plus the curated explanation for one red-flag code. No model-written advice is shown or spoken; the one-line
-  English reasoning in the "Why" panel passes an allowlist (no digits in any script, no "@", nothing domain-like).
-  Both API routes are rate limited per client (40 analyses and 6 speeches a minute) and by a shared per-endpoint cap. Set a budget alert on the Google Cloud project too.
+  headline plus the curated explanation for one red-flag code. No model-written text is shown or spoken; the only model
+  output on screen is the transcript and the quoted evidence. Both API routes are rate limited per client (40 analyses
+  and 6 speeches a minute) and by a shared per-endpoint cap that, when spent, refuses only clients above a fair share, under a hard ceiling no
+  client can pass. Set a budget alert on the Google Cloud project too.
 - **Errors don't leak.** Upstream failures are logged on the server; the browser gets a generic message.
 - **Headers.** `X-Content-Type-Options: nosniff`, a strict `Referrer-Policy`, and a `Permissions-Policy` that allows
   only the microphone.
