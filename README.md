@@ -35,7 +35,7 @@ Powered by **Gemini** (audio understanding + speech generation). Built to run on
 |---|---|
 | **What** | A second listener on the phone call. It hears Gujarati and Hindi, spots a scam *while the call is still going*, and warns out loud, in the listener's language, with the reasons. |
 | **Why it matters** | Digital-arrest, fake KYC and fake courier scams work because the victim is alone on the call. Sajag makes sure they aren't. |
-| **How** | The call is cut into 5-second pieces → **Gemini 2.5 Flash** listens to each one (audio in, no browser speech-to-text) → structured verdict with red flags and evidence → a two-key risk model → a spoken warning from **Gemini TTS**. |
+| **How** | The call is cut into 5-second pieces → **Gemini 3.8 Flash** listens to each one (audio in, no browser speech-to-text) → structured verdict with red flags and evidence → a two-key risk model → a spoken warning from **Gemini TTS**. |
 | **Proof it doesn't cry wolf** | Two genuine calls (a delivery person, a bank branch that even says "OTP") are in the samples and in the tests. |
 | **Try it** | `cp .env.example .env` (add a Gemini key) → `uv sync` → `uv run uvicorn app.main:app` → open `localhost:8000` → click a sample call. |
 | **Read more** | [How it works](#4-how-it-works) · [Red flags](#5-the-red-flags) · [Two-key model](#6-not-crying-wolf-the-two-key-risk-model) · [Architecture](docs/ARCHITECTURE.md) · [Demo script](docs/DEMO.md) |
@@ -55,7 +55,7 @@ Every requirement in the brief, where it lives, and how it is checked.
 | The brief asks for | Sajag | Where | Checked by |
 |---|---|---|---|
 | Play a scripted scam call | 3 scripted scam calls + 2 genuine calls, playable in one click; or upload any file; or **listen live** on speakerphone | `samples/`, `web/audio.js` (`FileCall`, `MicCall`) | `tests/test_api.py::test_samples_and_meta` |
-| An end-to-end audio model, **not** the browser's Web Speech API | **Gemini 2.5 Flash** takes raw audio and returns transcript, translation and verdict in one call. Browser speech recognition is never used | `app/analyzer.py` | `tests/test_gemini.py` |
+| An end-to-end audio model, **not** the browser's Web Speech API | **Gemini 3.8 Flash** takes raw audio and returns transcript, translation and verdict in one call. Browser speech recognition is never used | `app/analyzer.py` | `tests/test_gemini.py` |
 | Process the call in short chunks so the warning appears **mid-call** | 5-second chunks of *played* audio, analysed strictly in order with the call so far as context; the UI shows **Warned at 0:20 / 0:57** | `web/audio.js`, `web/app.js` (`pump`), `scripts/evaluate.py` (time to warning) | `tests/js/audio.test.mjs` (chunk timing) |
 | Flag it as a scam and warn the user | Full-screen warning, call audio ducked, phone vibrates, warning spoken aloud by **Gemini TTS** | `web/app.js` (`raiseAlert`), `app/speech.py` | `tests/test_api.py` (curated speech); manual browser run with a Gemini stand-in |
 | Name the red flags: **urgency, threats, OTP or money requests, claims of police or bank** | `URGENCY`, `ARREST_THREAT`, `OTP_REQUEST`, `MONEY_REQUEST`, `AUTHORITY` (+ `SECRECY`, `REMOTE_ACCESS`), each with the caller's exact words as evidence | `app/redflags.py`, `app/analyzer.py` (schema enum) | `tests/test_redflags.py` |
@@ -145,7 +145,7 @@ sequenceDiagram
     participant Call as Call audio<br/>(file or microphone)
     participant B as Browser<br/>(web/audio.js, app.js)
     participant S as Sajag API<br/>(FastAPI on Cloud Run)
-    participant G as Gemini 2.5 Flash<br/>(audio understanding)
+    participant G as Gemini 3.8 Flash<br/>(audio understanding)
     participant T as Gemini TTS
 
     Call->>B: plays / streams
@@ -178,7 +178,7 @@ Key decisions:
 - **Stateless server.** The browser holds the call state and sends it with each chunk. The server stores nothing, scales
   to zero on Cloud Run and needs no database or sticky sessions.
 - **Structured output.** Gemini answers against a strict JSON schema with a fixed red-flag enum. No free-text parsing.
-- **Low latency.** Thinking is turned down for the flash model so each chunk comes back well inside its 5-second budget.
+- **Low latency.** Thinking is set to low for the Flash model so each chunk comes back well inside its 5-second budget.
   The UI shows the measured Gemini latency live, and `scripts/evaluate.py` reports it per call.
 
 Deep dive, including the full prompt, schema, latency budget and failure modes: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -267,7 +267,7 @@ Without uv: `python -m venv .venv && . .venv/bin/activate && pip install fastapi
 | Variable | Default | Purpose |
 |---|---|---|
 | `GEMINI_API_KEY` | (required) | Gemini API key. Server-side only, never sent to the browser. |
-| `SAJAG_MODEL` | `gemini-2.5-flash` | Model for audio understanding. Any Gemini model with audio input works. |
+| `SAJAG_MODEL` | `gemini-3.8-flash` | Model for audio understanding. Any Gemini model with audio input works. |
 | `SAJAG_TTS_MODEL` | `gemini-2.5-flash-preview-tts` | Model for the spoken warning and sample generation. |
 | `SAJAG_TTS_VOICE` | `Sulafat` | Prebuilt voice for the warning (warm, calm). |
 
@@ -357,7 +357,7 @@ What "good" means, and how to read the results: [docs/EVALUATION.md](docs/EVALUA
 | Audio | Downmix to **16 kHz mono 16-bit** in the browser | ~6× smaller than 48 kHz stereo; ~160 KB per 5-second chunk |
 | Audio | **Silent chunks are never sent** (RMS gate, about −42 dBFS) | Saves a Gemini call and its latency during pauses and hold music |
 | Context | Browser sends only the last 2,500 characters of transcript, the most the server reads | Request size stays flat however long the call runs |
-| Model | Thinking turned down (`thinking_budget=0` on 2.5 Flash) | Each chunk returns well inside its 5-second budget |
+| Model | Thinking set to low (`thinking_level=LOW`) | Each chunk returns well inside its 5-second budget |
 | Network | One shared Gemini client (connection pooling); TTS results cached | No reconnect per chunk; the same warning is never synthesised twice |
 | HTTP | Gzip for HTML/JS/CSS/JSON, **not** for audio; `ETag` revalidation for UI assets; samples cached for a day | Less transfer without wasting CPU compressing WAV |
 | Server | Stateless; rate-limiter bookkeeping is O(1) per request (LRU `OrderedDict`) | Scales to zero and out to many instances; no database |
@@ -461,7 +461,7 @@ Dockerfile         Cloud Run container
 
 ## 15. Credits
 
-- **Google Gemini**: `gemini-2.5-flash` for audio understanding, `gemini-2.5-flash-preview-tts` for the spoken warning
+- **Google Gemini**: `gemini-3.8-flash` for audio understanding, `gemini-2.5-flash-preview-tts` for the spoken warning
   and the sample calls. **Google Cloud Run** for hosting.
 - FastAPI, Uvicorn and the `google-genai` SDK. Noto Sans fonts (Google Fonts) for Gujarati and Devanagari.
 - Developed with Claude Code as an AI coding assistant.

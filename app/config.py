@@ -21,7 +21,7 @@ def _load_dotenv(path: Path) -> None:
 _load_dotenv(ROOT / ".env")
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-MODEL = os.environ.get("SAJAG_MODEL", "gemini-2.5-flash")
+MODEL = os.environ.get("SAJAG_MODEL", "gemini-3.8-flash")
 TTS_MODEL = os.environ.get("SAJAG_TTS_MODEL", "gemini-2.5-flash-preview-tts")
 TTS_VOICE = os.environ.get("SAJAG_TTS_VOICE", "Sulafat")
 

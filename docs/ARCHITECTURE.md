@@ -22,7 +22,7 @@ flowchart LR
     G -- verdict --> C
     C -- warning text --> H
     I -- WAV --> UI
-    E <--> GM[(Gemini 2.5 Flash)]
+    E <--> GM[(Gemini 3.8 Flash)]
     I <--> GT[(Gemini TTS)]
 ```
 

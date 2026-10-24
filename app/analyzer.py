@@ -91,7 +91,7 @@ def client() -> genai.Client:
 
 # If the configured model is retired or unavailable, fall back to Google's always-current Flash alias. The model that
 # last worked is tried first, so a fallback costs one failed call once, not on every chunk.
-FALLBACK_MODELS = ("gemini-flash-latest", "gemini-2.5-flash")
+FALLBACK_MODELS = ("gemini-flash-latest",)
 _preferred_model: str | None = None
 
 

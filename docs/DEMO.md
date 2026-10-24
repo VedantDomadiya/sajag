@@ -45,7 +45,7 @@ Play **Genuine: delivery person at the gate**.
 Optional, if time: the genuine bank call that literally says "OTP".
 
 **2:20 · How and what's next (40 s)**
-> "Gemini 2.5 Flash does the listening, transcribing and judging in one call, with structured output. Gemini TTS speaks
+> "Gemini 3.8 Flash does the listening, transcribing and judging in one call, with structured output. Gemini TTS speaks
 > the warning. It's a stateless container for Cloud Run. Next: an Android app that sits on the real call, Gemini Live for
 > streaming, Gemini Nano on-device for privacy, and alerts that reach a family member's phone."
 
