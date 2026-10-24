@@ -1,0 +1,12 @@
+# One-click deploy on Render (free tier): Dashboard → New → Blueprint → pick this repo.
+services:
+  - type: web
+    name: sajag
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false # Render asks for the value at creation; it is stored as a secret, never in the repo

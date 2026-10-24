@@ -101,7 +101,7 @@ def _gen_config(lang: str) -> types.GenerateContentConfig:
 
 
 def _context_text(prev_transcript: str, prev_flags: list[str], t_start: float, t_end: float) -> str:
-    history = prev_transcript[-config.CONTEXT_CHARS:] if prev_transcript else "(call just started)"
+    history = prev_transcript[-config.CONTEXT_CHARS :] if prev_transcript else "(call just started)"
     flags = ", ".join(sorted(set(prev_flags))) or "none"
     # Strip anything that looks like our delimiter so transcript text can't close the block early.
     history = history.replace("<previous_transcript>", "").replace("</previous_transcript>", "")

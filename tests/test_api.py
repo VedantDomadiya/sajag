@@ -128,8 +128,8 @@ def test_client_key_uses_trusted_right_most_forwarded_ip(monkeypatch):
 
 def test_prune_keeps_live_counters(monkeypatch):
     main._hits.clear()
-    main._hits[("speak", "a")].append(0.0)        # long expired
-    main._hits[("speak", "b")].append(1_000.0)    # live
+    main._hits[("speak", "a")].append(0.0)  # long expired
+    main._hits[("speak", "b")].append(1_000.0)  # live
     main._prune(1_030.0)
     assert ("speak", "a") not in main._hits and ("speak", "b") in main._hits
 
@@ -147,7 +147,8 @@ def test_no_free_form_model_text_reaches_the_user(client):
 def test_global_cap_holds_even_when_clients_rotate(client, monkeypatch):
     monkeypatch.setitem(main.GLOBAL_LIMITS, "speak", 2)
     monkeypatch.setitem(main.FAIR_SHARE, "speak", 1)
-    main._hits.clear(); main._global.clear()
+    main._hits.clear()
+    main._global.clear()
     from app import speech
 
     async def fake_speak(text, lang):
@@ -179,7 +180,10 @@ def test_hard_global_ceiling_holds_when_client_ips_rotate(client, monkeypatch):
     monkeypatch.setattr(config, "CLIENT_IP_FROM_RIGHT", 1)
     monkeypatch.setitem(main.GLOBAL_LIMITS, "speak", 2)
     monkeypatch.setitem(main.HARD_GLOBAL, "speak", 4)
-    main._hits.clear(); main._global.clear()
-    codes = [client.post("/api/speak", json={"lang": "hi"}, headers={"x-forwarded-for": f"9.9.9.{i}"}).status_code
-             for i in range(6)]
+    main._hits.clear()
+    main._global.clear()
+    codes = [
+        client.post("/api/speak", json={"lang": "hi"}, headers={"x-forwarded-for": f"9.9.9.{i}"}).status_code
+        for i in range(6)
+    ]
     assert codes == [200, 200, 200, 200, 429, 429]  # fresh IPs pass the soft cap, never the hard one

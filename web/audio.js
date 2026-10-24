@@ -141,5 +141,5 @@
     }
   }
 
-  window.SajagAudio = { FileCall, MicCall, toBase64 };
+  window.SajagAudio = { FileCall, MicCall, toBase64, encodeWav, downsample, TARGET_RATE };
 })();

@@ -49,6 +49,7 @@ def read_wav_pcm(data: bytes) -> tuple[bytes, int]:
 
 # --- macOS `say` engine -------------------------------------------------------------------------------------------
 
+
 def say_line(text: str, caller: bool) -> bytes:
     """Render one line with Lekha. The caller is spoken faster, then slowed and pitched down by ~16%."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -73,6 +74,7 @@ def render_say(script: dict) -> bytes:
 
 
 # --- Gemini engine ------------------------------------------------------------------------------------------------
+
 
 async def render_gemini(script: dict) -> bytes:
     from google.genai import types

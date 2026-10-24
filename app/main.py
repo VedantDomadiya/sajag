@@ -120,13 +120,23 @@ def rate_limit(request: Request, bucket: str) -> None:
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "model": config.MODEL, "tts_model": config.TTS_MODEL, "gemini_configured": bool(config.GEMINI_API_KEY)}
+    return {
+        "ok": True,
+        "model": config.MODEL,
+        "tts_model": config.TTS_MODEL,
+        "gemini_configured": bool(config.GEMINI_API_KEY),
+    }
 
 
 @app.get("/api/meta")
 def meta():
     """Labels, explanations and headlines in all three languages, so the UI has one source of truth."""
-    return {"labels": rf.LABELS, "explain": rf.EXPLAIN, "headlines": rf.HEADLINES, "thresholds": {"scam": risk.SCAM_AT, "caution": risk.CAUTION_AT}}
+    return {
+        "labels": rf.LABELS,
+        "explain": rf.EXPLAIN,
+        "headlines": rf.HEADLINES,
+        "thresholds": {"scam": risk.SCAM_AT, "caution": risk.CAUTION_AT},
+    }
 
 
 @app.get("/api/samples")
@@ -136,14 +146,16 @@ def samples():
         info = json.loads(meta_file.read_text(encoding="utf-8"))
         wav = config.SAMPLES_DIR / f"{meta_file.stem}.wav"
         if wav.is_file():
-            out.append({
-                "id": meta_file.stem,
-                "title": info["title"],
-                "language": info["language"],
-                "expected": info["expected"],
-                "caller_id": info.get("caller_id", "Unknown number"),
-                "url": f"/samples/{wav.name}",
-            })
+            out.append(
+                {
+                    "id": meta_file.stem,
+                    "title": info["title"],
+                    "language": info["language"],
+                    "expected": info["expected"],
+                    "caller_id": info.get("caller_id", "Unknown number"),
+                    "url": f"/samples/{wav.name}",
+                }
+            )
     return out
 
 
@@ -155,7 +167,7 @@ async def analyze(req: ChunkRequest, request: Request):
     try:
         audio = base64.b64decode(req.audio_b64, validate=True)
     except (binascii.Error, ValueError):
-        raise HTTPException(400, "audio_b64 is not valid base64")
+        raise HTTPException(400, "audio_b64 is not valid base64") from None
     if not audio or len(audio) > MAX_AUDIO_BYTES:
         raise HTTPException(413, "Audio chunk is empty or too long")
     if not config.GEMINI_API_KEY:
@@ -168,7 +180,7 @@ async def analyze(req: ChunkRequest, request: Request):
         )
     except Exception:
         log.exception("Gemini analysis failed")
-        raise HTTPException(502, "Analysis temporarily unavailable")
+        raise HTTPException(502, "Analysis temporarily unavailable") from None
 
     # Second opinion: deterministic keyword rules over what Gemini heard (original script + English gloss).
     model_codes = {f["code"] for f in verdict["flags"]}
@@ -203,7 +215,7 @@ async def speak(req: SpeakRequest, request: Request):
         wav = await speech.speak(" ".join(parts), req.lang)
     except Exception:
         log.exception("Gemini TTS failed")
-        raise HTTPException(502, "Speech temporarily unavailable")
+        raise HTTPException(502, "Speech temporarily unavailable") from None
     return Response(wav, media_type="audio/wav", headers={"Cache-Control": "no-store"})
 
 

@@ -7,7 +7,6 @@ Needs GEMINI_API_KEY. Writes eval-results.json and prints a Markdown table you c
 
 import argparse
 import asyncio
-import io
 import json
 import sys
 import time
@@ -53,9 +52,14 @@ async def run_call(path: Path, lang: str, seconds: float) -> dict:
             warned_at = t1
         timeline.append({"t": round(t1, 1), "risk": fused["risk"], "level": fused["level"], "flags": sorted(flags)})
     return {
-        "duration": round(duration, 1), "warned_at": warned_at, "peak": peak, "flags": sorted(flags),
-        "final": risk.level_for(peak), "avg_latency_ms": round(sum(latencies) / max(1, len(latencies))),
-        "timeline": timeline, "transcript": transcript,
+        "duration": round(duration, 1),
+        "warned_at": warned_at,
+        "peak": peak,
+        "flags": sorted(flags),
+        "final": risk.level_for(peak),
+        "avg_latency_ms": round(sum(latencies) / max(1, len(latencies))),
+        "timeline": timeline,
+        "transcript": transcript,
     }
 
 
@@ -81,10 +85,14 @@ async def main() -> None:
         results[meta_path.stem] = r
         warned = f"{r['warned_at']:.0f}s of {r['duration']:.0f}s" if r["warned_at"] else "never"
         mark = "✅" if r["correct"] else "❌"
-        print(f"| {meta_path.stem} | {meta['expected']} | {mark} {r['final']} (peak {r['peak']}) | {warned} | "
-              f"{', '.join(r['flags']) or '–'} | {r['avg_latency_ms'] / 1000:.1f}s |")
-    Path("eval-results.json").write_text(json.dumps({"model": config.MODEL, "chunk": args.chunk, "results": results},
-                                                    ensure_ascii=False, indent=2), encoding="utf-8")
+        print(
+            f"| {meta_path.stem} | {meta['expected']} | {mark} {r['final']} (peak {r['peak']}) | {warned} | "
+            f"{', '.join(r['flags']) or '–'} | {r['avg_latency_ms'] / 1000:.1f}s |"
+        )
+    Path("eval-results.json").write_text(
+        json.dumps({"model": config.MODEL, "chunk": args.chunk, "results": results}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     correct = sum(r["correct"] for r in results.values())
     print(f"\n{correct}/{len(results)} calls classified correctly. Details: eval-results.json")
 

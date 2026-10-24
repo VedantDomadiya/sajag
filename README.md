@@ -14,6 +14,13 @@ Powered by **Gemini** (audio understanding + speech generation). Built to run on
 
 **Challenge:** Voice AI Scam Shield
 
+[![CI](https://github.com/VedantDomadiya/sajag/actions/workflows/ci.yml/badge.svg)](https://github.com/VedantDomadiya/sajag/actions/workflows/ci.yml)
+![coverage](https://img.shields.io/badge/coverage-97%25-brightgreen)
+![tests](https://img.shields.io/badge/tests-39%20python%20%2B%205%20js-blue)
+![python](https://img.shields.io/badge/python-3.11%E2%80%933.13-3776AB)
+![Gemini](https://img.shields.io/badge/powered%20by-Gemini-4285F4)
+[![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
+
 </div>
 
 <p align="center">
@@ -55,14 +62,14 @@ can be shown deterministically. The latency and risk numbers in them are illustr
 6. [Not crying wolf: the two-key risk model](#6-not-crying-wolf-the-two-key-risk-model)
 7. [Sample calls](#7-sample-calls)
 8. [Run it locally](#8-run-it-locally)
-9. [Deploy to Cloud Run](#9-deploy-to-cloud-run)
+9. [Deploy (Render or Cloud Run)](#9-deploy)
 10. [Evaluation](#10-evaluation)
 11. [Privacy, safety and security](#11-privacy-safety-and-security)
 12. [Limitations and roadmap](#12-limitations-and-roadmap)
 13. [Project layout](#13-project-layout)
 14. [Credits](#14-credits)
 
-More detail: [Architecture](docs/ARCHITECTURE.md) · [Demo runbook and pitch](docs/DEMO.md) · [Evaluation method](docs/EVALUATION.md)
+More detail: [Architecture](docs/ARCHITECTURE.md) · [Demo runbook and pitch](docs/DEMO.md) · [Evaluation method](docs/EVALUATION.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
 
 ---
 
@@ -245,12 +252,22 @@ Without uv: `python -m venv .venv && . .venv/bin/activate && pip install fastapi
 | `SAJAG_TTS_MODEL` | `gemini-2.5-flash-preview-tts` | Model for the spoken warning and sample generation. |
 | `SAJAG_TTS_VOICE` | `Sulafat` | Prebuilt voice for the warning (warm, calm). |
 
-Checks:
+Checks (the same ones CI runs on every push, see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
 
 ```bash
-uv run pytest -q                          # 27 tests: rules, fusion, API contract, input validation, security (no key needed)
-uv run python scripts/evaluate.py         # replays every sample through Gemini and reports accuracy + time to warning
+make test        # ruff lint + format, 39 pytest tests with coverage (97%, CI fails under 90%), 5 node:test tests
+make eval        # replays every sample through Gemini and reports accuracy + time to warning (needs a key)
 ```
+
+| Suite | What it proves |
+|---|---|
+| `tests/test_redflags.py` | Every flag has gu/hi/en text; keyword rules catch each scripted scam and nothing in the genuine delivery call; the genuine bank call that says "OTP" stays SAFE |
+| `tests/test_risk.py` | Two-key fusion: model alone can alarm, rules alone can't, combo floor, sticky risk, injection backstop |
+| `tests/test_api.py` | API contract, model + rule fusion, input validation (400/413/415/422/503), curated-only speech, no leaked errors, rate limits and the hard ceiling |
+| `tests/test_gemini.py` | Gemini request/response handling against a fake client: schema, output cleaning, retry, untrusted-context delimiters, TTS + cache, `.env` loading |
+| `tests/js/audio.test.mjs` | Browser audio: 16 kHz downsampling, WAV header and clamping, base64, 5-second chunk timing, tail handling |
+
+CI also builds the Docker image and smoke-tests it.
 
 API (interactive docs at `/api/docs`):
 
@@ -262,7 +279,16 @@ API (interactive docs at `/api/docs`):
 | `GET` | `/api/meta` | Red-flag labels, explanations and headlines in all three languages |
 | `GET` | `/api/health` | Model names and whether a key is configured |
 
-## 9. Deploy to Cloud Run
+## 9. Deploy
+
+### Render (free, about 3 minutes)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/VedantDomadiya/sajag)
+
+The button reads [`render.yaml`](render.yaml), builds the Dockerfile and asks for `GEMINI_API_KEY` (stored as a secret).
+Free instances sleep after 15 minutes idle; the first visit after that takes up to a minute.
+
+### Google Cloud Run
 
 The app is a single stateless container ([`Dockerfile`](Dockerfile), non-root, port 8080).
 
@@ -349,10 +375,13 @@ web/
   i18n.js          UI strings in Gujarati, Hindi, English
   style.css        Elder-friendly, high-contrast styles (light and dark)
 samples/           Five .wav calls + their JSON scripts
+tests/             pytest suites (rules, risk, API, Gemini client) and tests/js (node:test for web/audio.js)
+.github/workflows/ CI: lint, tests + coverage, JS tests, Docker build + smoke test
+Makefile           make run / test / eval / samples / docker
+render.yaml        One-click Render deploy
 scripts/
   generate_calls.py  Build the sample .wav files (Gemini multi-speaker TTS or macOS fallback)
   evaluate.py        Replay all samples through the real pipeline and score them
-tests/             Rules, fusion and API tests (no API key needed)
 docs/              Architecture, demo runbook, evaluation method
 Dockerfile         Cloud Run container
 ```

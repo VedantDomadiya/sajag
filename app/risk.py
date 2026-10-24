@@ -1,7 +1,8 @@
 """Fuse Gemini's judgement with the keyword rules into one call-level risk score.
 
 Design ("two keys"):
-- Gemini alone can raise the alarm: it hears tone, context and negation ("never share your OTP" is advice, not a request).
+- Gemini alone can raise the alarm: it hears tone, context and negation ("never share your OTP" is advice,
+  not a request).
 - Keyword rules alone cannot. A strong rule combination (an authority claim or arrest threat plus a request for OTP,
   money or remote access) sets a floor of 85 only when Gemini also rates the call at least 40. Without the model's
   agreement the same combination still lifts the call to CAUTION, so a caller who manages to talk the model down

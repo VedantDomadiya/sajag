@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python · lint, tests, coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --locked
+      - name: Lint (ruff)
+        run: uv run ruff check app scripts tests
+      - name: Format check (ruff)
+        run: uv run ruff format --check app scripts tests
+      - name: Tests with coverage (fails under 90%)
+        run: uv run pytest --cov --cov-report=term-missing
+
+  javascript:
+    name: JavaScript · syntax and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Syntax check
+        run: for f in web/*.js; do node --check "$f"; done
+      - name: Unit tests (node:test)
+        run: node --test tests/js/*.test.mjs
+
+  docker:
+    name: Docker · image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker build -t sajag:ci .
+      - name: Smoke test
+        run: |
+          docker run -d --name sajag -p 8080:8080 sajag:ci
+          for i in $(seq 1 20); do curl -fsS localhost:8080/api/health && break; sleep 1; done
+          curl -fsS localhost:8080/ | grep -q Sajag
+          curl -fsS localhost:8080/api/samples | grep -q digital_arrest
