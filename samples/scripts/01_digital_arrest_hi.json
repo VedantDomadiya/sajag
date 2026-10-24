@@ -1,0 +1,22 @@
+{
+  "title": "Digital arrest: fake Mumbai Cyber Crime officer",
+  "language": "hi",
+  "expected": "SCAM",
+  "scam_type": "DIGITAL_ARREST",
+  "caller_id": "Unknown number",
+  "description": "A caller posing as a police inspector says a parcel with drugs was sent on the victim's Aadhaar, declares a 'digital arrest', demands secrecy and asks for all savings to be moved to an 'RBI verification account'.",
+  "speakers": {
+    "Caller": {"gemini_voice": "Charon", "style": "a stern, intimidating police officer, speaking fast and with authority"},
+    "User": {"gemini_voice": "Leda", "style": "an elderly Indian woman, confused and getting scared"}
+  },
+  "lines": [
+    {"speaker": "User", "text": "हेलो? कौन बोल रहा है?"},
+    {"speaker": "Caller", "text": "मैं मुंबई साइबर क्राइम ब्रांच से इंस्पेक्टर विक्रम राठौड़ बोल रहा हूँ। आपके आधार कार्ड से एक पार्सल भेजा गया है, जिसमें ड्रग्स और पाँच नकली पासपोर्ट मिले हैं।"},
+    {"speaker": "User", "text": "क्या? मैंने तो कोई पार्सल नहीं भेजा, भैया।"},
+    {"speaker": "Caller", "text": "आपके नाम पर मनी लॉन्ड्रिंग का केस दर्ज हुआ है और अरेस्ट वारंट निकल चुका है। अभी से आप डिजिटल अरेस्ट में हैं। वीडियो कॉल चालू रखिए और किसी को कुछ मत बताइए, घर वालों को भी नहीं।"},
+    {"speaker": "User", "text": "हे भगवान, मैं बहुत डर गई हूँ। अब मैं क्या करूँ?"},
+    {"speaker": "Caller", "text": "घबराइए मत। अगर आप निर्दोष हैं, तो अपने बैंक खाते का सारा पैसा आरबीआई के वेरिफ़िकेशन अकाउंट में ट्रांसफर कर दीजिए। जाँच के बाद एक घंटे में वापस आ जाएगा।"},
+    {"speaker": "User", "text": "सारा पैसा? पर वो तो मेरी पेंशन है।"},
+    {"speaker": "Caller", "text": "जल्दी कीजिए, नहीं तो पुलिस अभी आपके घर पहुँच जाएगी। फ़ोन मत काटिए।"}
+  ]
+}

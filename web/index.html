@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="gu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sajag · સજાગ · सजग</title>
+  <meta name="description" content="Sajag listens to a phone call with you and warns you, in Gujarati or Hindi, the moment it sounds like a scam. Powered by Gemini.">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;800&family=Noto+Sans+Devanagari:wght@400;600;800&family=Noto+Sans+Gujarati:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img src="/static/icon.svg" alt="" width="40" height="40">
+      <div>
+        <h1>Sajag <span class="brand-sub">સજાગ · सजग</span></h1>
+        <p class="tag" data-i18n="tagline">You are not alone on this call.</p>
+      </div>
+    </div>
+    <div class="lang" role="group" aria-label="Language">
+      <button data-lang="gu" aria-pressed="true">ગુજરાતી</button>
+      <button data-lang="hi" aria-pressed="false">हिंदी</button>
+      <button data-lang="en" aria-pressed="false">English</button>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main class="layout">
+    <!-- Left: pick or capture a call -->
+    <section class="panel sources" aria-labelledby="src-h">
+      <h2 id="src-h" data-i18n="pickCall">Play a call</h2>
+      <p class="hint" data-i18n="pickHint">Sajag listens in 5-second pieces and warns you while the call is still going.</p>
+      <ul id="samples" class="samples"></ul>
+      <div class="or" data-i18n="or">or</div>
+      <div class="source-actions">
+        <button id="micBtn" class="btn ghost" type="button"><span aria-hidden="true">🎙</span> <span data-i18n="mic">Listen live (speakerphone)</span></button>
+        <label class="btn ghost file"><span aria-hidden="true">📁</span> <span data-i18n="upload">Upload a call (.wav / .mp3)</span>
+          <input id="fileIn" type="file" accept="audio/*" hidden>
+        </label>
+      </div>
+      <p class="privacy" data-i18n="privacy">Audio is analysed by Gemini in short pieces and is not stored by Sajag.</p>
+    </section>
+
+    <!-- Middle: the phone -->
+    <section class="phone-wrap" aria-label="Call">
+      <div id="phone" class="phone idle">
+        <div class="phone-top">
+          <div class="avatar" aria-hidden="true">☎</div>
+          <div class="caller">
+            <div id="callerName" class="caller-name" data-i18n="noCall">No call</div>
+            <div id="callClock" class="call-clock">0:00</div>
+          </div>
+          <div id="levelPill" class="pill safe" data-i18n="safe">Safe</div>
+        </div>
+        <div class="progress"><div id="progressBar"></div><div id="markers" class="markers"></div></div>
+        <div id="transcript" class="transcript" aria-live="polite">
+          <p class="empty" data-i18n="emptyTranscript">Start a call. What Sajag hears will appear here.</p>
+        </div>
+        <div class="phone-actions">
+          <button id="hangBtn" class="btn hang" type="button" disabled><span aria-hidden="true">✆</span> <span data-i18n="hangUp">Cut the call</span></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right: the guardian -->
+    <section class="panel guard" aria-labelledby="guard-h">
+      <h2 id="guard-h" data-i18n="guardian">Sajag is listening</h2>
+      <div class="meter" aria-label="Scam risk">
+        <div class="meter-head"><span data-i18n="risk">Scam risk</span><strong id="riskNum">0</strong></div>
+        <div class="meter-bar"><div id="riskFill"></div><i style="left:40%"></i><i style="left:70%"></i></div>
+        <div class="meter-legend"><span data-i18n="safe">Safe</span><span data-i18n="caution">Careful</span><span data-i18n="scam">Scam</span></div>
+      </div>
+      <h3 data-i18n="redFlags">Red flags heard</h3>
+      <ul id="flags" class="flags"></ul>
+      <div id="why" class="why" hidden>
+        <h3 data-i18n="why">Why</h3>
+        <p id="whyText"></p>
+      </div>
+      <dl class="stats">
+        <div><dt data-i18n="chunks">Pieces analysed</dt><dd id="statChunks">0</dd></div>
+        <div><dt data-i18n="latency">Gemini latency</dt><dd id="statLatency">–</dd></div>
+        <div><dt data-i18n="warnedAt">Warned at</dt><dd id="statWarned">–</dd></div>
+      </dl>
+    </section>
+  </main>
+
+  <!-- Full-screen scam warning -->
+  <div id="alert" class="alert" role="alertdialog" aria-modal="true" aria-labelledby="alertHead" hidden>
+    <div class="alert-card">
+      <div class="alert-icon" aria-hidden="true">!</div>
+      <h2 id="alertHead"></h2>
+      <p id="alertSpoken" class="alert-spoken"></p>
+      <ul id="alertReasons" class="alert-reasons"></ul>
+      <div class="alert-actions">
+        <button id="alertHang" class="btn hang big" type="button" data-i18n="hangUp">Cut the call</button>
+        <a id="alertFamily" class="btn family big" target="_blank" rel="noopener" data-i18n="tellFamily">Tell my family</a>
+        <a class="btn ghost" href="tel:1930" data-i18n="call1930">Call 1930 (Cyber helpline)</a>
+        <a class="btn ghost" href="https://cybercrime.gov.in" target="_blank" rel="noopener" data-i18n="report">Report at cybercrime.gov.in</a>
+      </div>
+      <button id="alertReplay" class="link" type="button" data-i18n="replay">🔊 Hear the warning again</button>
+      <button id="alertClose" class="link" type="button" data-i18n="dismiss">I understand, keep listening</button>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <p><span data-i18n="footer">Real police never arrest anyone over a call. If in doubt, cut the call and call 1930.</span></p>
+    <p class="powered">Powered by Gemini · <a href="https://github.com/VedantDomadiya/sajag" target="_blank" rel="noopener">Source</a></p>
+  </footer>
+
+  <script src="/static/i18n.js"></script>
+  <script src="/static/audio.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

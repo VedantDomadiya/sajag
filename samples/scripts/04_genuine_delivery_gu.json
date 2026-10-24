@@ -1,0 +1,19 @@
+{
+  "title": "Genuine: delivery person at the gate",
+  "language": "gu",
+  "expected": "SAFE",
+  "scam_type": "NONE",
+  "caller_id": "Delivery partner",
+  "description": "A real delivery call. It mentions a parcel and a payment, just like a courier scam, but asks for nothing sensitive. Sajag must stay quiet.",
+  "speakers": {
+    "Caller": {"gemini_voice": "Puck", "style": "a friendly young delivery person, relaxed"},
+    "User": {"gemini_voice": "Leda", "style": "an elderly Gujarati woman, cheerful"}
+  },
+  "lines": [
+    {"speaker": "Caller", "text": "હેલો બા, હું ડિલિવરીવાળો બોલું છું. તમારું પાર્સલ લઈને આવ્યો છું, સોસાયટીના ગેટ પર ઊભો છું."},
+    {"speaker": "User", "text": "અચ્છા ભાઈ, કયું પાર્સલ છે?"},
+    {"speaker": "Caller", "text": "તમારા દીકરાએ ઓનલાઇન દવાઓ મંગાવી છે. પેમેન્ટ તો થઈ ગયું છે, તમારે કંઈ આપવાનું નથી."},
+    {"speaker": "User", "text": "હા હા, બરાબર. અમારો ફ્લેટ બી વિંગમાં ત્રીજા માળે છે."},
+    {"speaker": "Caller", "text": "સારું બા, પાંચ મિનિટમાં ઉપર આવું છું. તમે આરામથી દરવાજો ખોલજો."}
+  ]
+}

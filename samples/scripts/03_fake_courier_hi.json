@@ -1,0 +1,19 @@
+{
+  "title": "Fake courier: customs duty and AnyDesk",
+  "language": "hi",
+  "expected": "SCAM",
+  "scam_type": "FAKE_COURIER",
+  "caller_id": "Unknown number",
+  "description": "A caller from an 'international courier' says a gift parcel is stuck at customs, threatens seizure and a case, asks for a duty payment and for AnyDesk to be installed.",
+  "speakers": {
+    "Caller": {"gemini_voice": "Fenrir", "style": "a fast-talking courier agent, friendly at first then pressuring"},
+    "User": {"gemini_voice": "Orus", "style": "an elderly Indian man, polite and unsure"}
+  },
+  "lines": [
+    {"speaker": "Caller", "text": "नमस्ते सर, मैं इंटरनेशनल कूरियर सर्विस से बोल रहा हूँ। आपके नाम का एक पार्सल कस्टम्स में रुका हुआ है।"},
+    {"speaker": "User", "text": "पार्सल? मैंने तो कुछ ऑर्डर ही नहीं किया।"},
+    {"speaker": "Caller", "text": "सर, ये विदेश से आया गिफ्ट पार्सल है। आज ही उन्नीस सौ निन्यानवे रुपये कस्टम ड्यूटी नहीं भरी तो पार्सल ज़ब्त हो जाएगा और आप पर केस भी बन सकता है।"},
+    {"speaker": "User", "text": "अच्छा, तो पैसे कैसे भरूँ?"},
+    {"speaker": "Caller", "text": "पहले प्ले स्टोर से एनीडेस्क ऐप डाउनलोड कर लीजिए, मैं स्क्रीन पर सब समझा दूँगा। फिर UPI पिन डालकर पेमेंट कर दीजिए। फ़ोन मत काटिएगा, सर।"}
+  ]
+}

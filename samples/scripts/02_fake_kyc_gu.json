@@ -1,0 +1,20 @@
+{
+  "title": "Fake KYC: 'your account closes tonight'",
+  "language": "gu",
+  "expected": "SCAM",
+  "scam_type": "FAKE_KYC",
+  "caller_id": "Unknown number",
+  "description": "A caller claiming to be from the bank's KYC department says the pension account will be blocked tonight, then asks for the OTP and the card's CVV.",
+  "speakers": {
+    "Caller": {"gemini_voice": "Puck", "style": "a smooth, overly polite call-centre agent who becomes pushy"},
+    "User": {"gemini_voice": "Leda", "style": "an elderly Gujarati woman, worried about her pension"}
+  },
+  "lines": [
+    {"speaker": "User", "text": "હેલો, કોણ બોલો છો?"},
+    {"speaker": "Caller", "text": "નમસ્તે બેન, હું તમારી બેંકના KYC વિભાગમાંથી બોલું છું. તમારું KYC એક્સપાયર થઈ ગયું છે. આજે રાત્રે બાર વાગ્યે તમારું ખાતું બંધ થઈ જશે."},
+    {"speaker": "User", "text": "હાય હાય, મારું પેન્શન તો એમાં જ આવે છે. હવે શું કરવું પડશે?"},
+    {"speaker": "Caller", "text": "ચિંતા ના કરો, હું અત્યારે જ અપડેટ કરી દઉં છું. તમારા મોબાઇલ પર છ આંકડાનો OTP આવ્યો હશે, એ મને જલ્દી બોલો."},
+    {"speaker": "User", "text": "હા, મેસેજ આવ્યો છે. પણ એમાં લખ્યું છે કે કોઈને કહેવો નહીં."},
+    {"speaker": "Caller", "text": "એ તો બધા માટે લખેલું હોય છે બેન, હું તો બેંકમાંથી જ બોલું છું. જલ્દી કરો, પાંચ મિનિટમાં લિંક એક્સપાયર થઈ જશે. અને તમારા ATM કાર્ડની પાછળ લખેલો CVV નંબર પણ કહો."}
+  ]
+}

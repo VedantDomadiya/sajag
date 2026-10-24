@@ -1,0 +1,18 @@
+{
+  "title": "Genuine: bank branch about an FD",
+  "language": "hi",
+  "expected": "SAFE",
+  "scam_type": "NONE",
+  "caller_id": "Bank branch",
+  "description": "A real bank call. It says 'bank' and even 'OTP', which keyword filters flag, but it only asks the customer to visit the branch and warns them never to share an OTP. Tests the two-key design.",
+  "speakers": {
+    "Caller": {"gemini_voice": "Kore", "style": "a calm, polite bank officer"},
+    "User": {"gemini_voice": "Orus", "style": "an elderly Indian man, relaxed"}
+  },
+  "lines": [
+    {"speaker": "Caller", "text": "नमस्ते शर्मा जी, मैं आपकी बैंक शाखा से सुनीता बोल रही हूँ। आपकी फ़िक्स्ड डिपॉज़िट अगले महीने पूरी हो रही है।"},
+    {"speaker": "User", "text": "अच्छा, तो मुझे क्या करना होगा?"},
+    {"speaker": "Caller", "text": "कोई जल्दी नहीं है। आपको जब सुविधा हो, ब्रांच आकर फ़ॉर्म भर दीजिए। और याद रखिए, बैंक कभी फ़ोन पर OTP या PIN नहीं माँगता।"},
+    {"speaker": "User", "text": "ठीक है बेटी, मैं सोमवार को आ जाऊँगा। धन्यवाद।"}
+  ]
+}
