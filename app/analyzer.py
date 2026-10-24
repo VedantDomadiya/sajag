@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import time
 from typing import Any
 
@@ -10,6 +11,8 @@ from google.genai import types
 
 from . import config
 from . import redflags as rf
+
+log = logging.getLogger("sajag")
 
 LANG_NAMES = {"gu": "Gujarati (Gujarati script)", "hi": "Hindi (Devanagari script)", "en": "simple English"}
 
@@ -86,20 +89,34 @@ def client() -> genai.Client:
     return _client
 
 
-def _thinking_config() -> types.ThinkingConfig:
-    """Latency matters more than deep reasoning here: every chunk must come back before the next one is due."""
-    if config.MODEL.startswith("gemini-2.5"):
+# If the configured model is retired or unavailable, fall back to Google's always-current Flash alias. The model that
+# last worked is tried first, so a fallback costs one failed call once, not on every chunk.
+FALLBACK_MODELS = ("gemini-flash-latest", "gemini-2.5-flash")
+_preferred_model: str | None = None
+
+
+def _candidate_models() -> list[str]:
+    ordered = [_preferred_model, config.MODEL, *FALLBACK_MODELS]
+    return list(dict.fromkeys(m for m in ordered if m))
+
+
+def _thinking_config(model: str) -> types.ThinkingConfig | None:
+    """Latency matters more than deep reasoning: every chunk must come back before the next one is due.
+    Each model family takes a different knob; for an alias we don't recognise, send none."""
+    if model.startswith("gemini-2.5"):
         return types.ThinkingConfig(thinking_budget=0)
-    return types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)
+    if model.startswith("gemini-3"):
+        return types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)
+    return None
 
 
-def _gen_config(lang: str) -> types.GenerateContentConfig:
+def _gen_config(lang: str, model: str) -> types.GenerateContentConfig:
     return types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT.replace("{lang}", LANG_NAMES.get(lang, LANG_NAMES["hi"])),
         temperature=0.2,
         response_mime_type="application/json",
         response_json_schema=RESPONSE_SCHEMA,
-        thinking_config=_thinking_config(),
+        thinking_config=_thinking_config(model),
     )
 
 
@@ -119,26 +136,32 @@ def _context_text(prev_transcript: str, prev_flags: list[str], t_start: float, t
 async def analyze_chunk(
     audio: bytes, mime: str, lang: str, prev_transcript: str, prev_flags: list[str], t_start: float, t_end: float
 ) -> dict[str, Any]:
-    """Return Gemini's parsed verdict for one chunk, plus timing. Retries once on a transient failure."""
+    """Return Gemini's parsed verdict for one chunk, plus timing. Tries the preferred model, then the fallbacks, so a
+    retired model name or a transient failure doesn't stop the guardian."""
+    global _preferred_model
     contents = [
         types.Part.from_bytes(data=audio, mime_type=mime),
         _context_text(prev_transcript, prev_flags, t_start, t_end),
     ]
     last_err: Exception | None = None
-    for attempt in range(2):
+    for attempt, model in enumerate(_candidate_models()):
         started = time.perf_counter()
         try:
             resp = await client().aio.models.generate_content(
-                model=config.MODEL, contents=contents, config=_gen_config(lang)
+                model=model, contents=contents, config=_gen_config(lang, model)
             )
             if not resp.text:
                 raise ValueError("empty response from Gemini")
             data = json.loads(resp.text)
             data["latency_ms"] = round((time.perf_counter() - started) * 1000)
+            if model != _preferred_model:
+                log.info("Gemini analysis using model %s", model)
+                _preferred_model = model
             return _clean(data)
-        except Exception as err:  # network blips, 429s and malformed JSON all get one retry
+        except Exception as err:  # retired model, network blip, 429 or malformed JSON: try the next model
+            log.warning("Gemini model %s failed: %s", model, err)
             last_err = err
-            await asyncio.sleep(0.4 * (attempt + 1))
+            await asyncio.sleep(0.3 * (attempt + 1))
     raise RuntimeError(f"Gemini analysis failed: {last_err}")
 
 

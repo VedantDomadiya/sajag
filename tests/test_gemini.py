@@ -27,6 +27,7 @@ class FakeModels:
 
 def fake_client(monkeypatch, replies):
     models = FakeModels(replies)
+    monkeypatch.setattr(analyzer, "_preferred_model", None)
     monkeypatch.setattr(analyzer, "_client", SimpleNamespace(aio=SimpleNamespace(models=models)))
     monkeypatch.setattr(asyncio, "sleep", _no_sleep)
     return models
@@ -68,7 +69,7 @@ def test_analyze_chunk_retries_once_then_fails(monkeypatch):
     fake_client(monkeypatch, [RuntimeError("blip"), verdict(scam_probability=10)])
     assert run(analyzer.analyze_chunk(b"RIFF", "audio/wav", "hi", "", [], 0, 5))["scam_probability"] == 10
 
-    fake_client(monkeypatch, [RuntimeError("a"), RuntimeError("b")])
+    fake_client(monkeypatch, [RuntimeError("a"), RuntimeError("b"), RuntimeError("c")])
     with pytest.raises(RuntimeError, match="Gemini analysis failed"):
         run(analyzer.analyze_chunk(b"RIFF", "audio/wav", "hi", "", [], 0, 5))
 
@@ -85,11 +86,19 @@ def test_context_is_bounded():
     assert len(text) < config.CONTEXT_CHARS + 500
 
 
-def test_thinking_config_matches_model_family(monkeypatch):
-    monkeypatch.setattr(config, "MODEL", "gemini-2.5-flash")
-    assert analyzer._gen_config("gu").thinking_config.thinking_budget == 0
-    monkeypatch.setattr(config, "MODEL", "gemini-3-flash")
-    assert analyzer._gen_config("gu").thinking_config.thinking_level is not None
+def test_thinking_config_matches_model_family():
+    assert analyzer._gen_config("gu", "gemini-2.5-flash").thinking_config.thinking_budget == 0
+    assert analyzer._gen_config("gu", "gemini-3-flash").thinking_config.thinking_level is not None
+    assert analyzer._gen_config("gu", "gemini-flash-latest").thinking_config is None
+
+
+def test_falls_back_to_current_alias_and_remembers_it(monkeypatch):
+    monkeypatch.setattr(config, "MODEL", "gemini-retired-model")
+    models = fake_client(monkeypatch, [RuntimeError("404 model not found"), verdict(), verdict()])
+    run(analyzer.analyze_chunk(b"RIFF", "audio/wav", "gu", "", [], 0, 5))
+    assert [c["model"] for c in models.calls] == ["gemini-retired-model", "gemini-flash-latest"]
+    run(analyzer.analyze_chunk(b"RIFF", "audio/wav", "gu", "", [], 5, 10))
+    assert models.calls[-1]["model"] == "gemini-flash-latest"  # no wasted call on the retired model
 
 
 def test_client_requires_key(monkeypatch):
@@ -145,7 +154,7 @@ def test_dotenv_loader(tmp_path, monkeypatch):
 
 
 def test_empty_gemini_response_is_retried_then_reported(monkeypatch):
-    fake_client(monkeypatch, [SimpleNamespace(text=""), SimpleNamespace(text=None)])
+    fake_client(monkeypatch, [SimpleNamespace(text=""), SimpleNamespace(text=None), SimpleNamespace(text="")])
     with pytest.raises(RuntimeError, match="empty response"):
         run(analyzer.analyze_chunk(b"RIFF", "audio/wav", "gu", "", [], 0, 5))
 
