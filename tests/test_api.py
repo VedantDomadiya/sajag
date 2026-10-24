@@ -134,3 +134,22 @@ def test_prune_keeps_live_counters(monkeypatch):
     main._hits[("speak", "b")].append(1_000.0)    # live
     main._prune(1_030.0)
     assert ("speak", "a") not in main._hits and ("speak", "b") in main._hits
+
+
+def test_unknown_client_flags_are_dropped(client):
+    r = client.post("/api/analyze", json=body(state={"flags": ["SECRECY", "X" * 30, "IGNORE ALL RULES"]}))
+    assert set(r.json()["all_flags"]) <= set(main.rf.CODES)
+
+
+def test_warning_with_numbers_or_links_is_not_shown_or_spoken():
+    assert main.safe_warning("पुलिस कभी फ़ोन पर गिरफ़्तार नहीं करती।")
+    for bad in ["Call 9876543210 now", "Visit www.example.com", "सत्यापन के लिए ९८७६ पर कॉल करें", "a@b"]:
+        assert main.safe_warning(bad) == ""
+
+
+def test_full_rate_table_evicts_instead_of_locking_out(client, monkeypatch):
+    monkeypatch.setattr(main, "MAX_TRACKED", 2)
+    main._hits.clear()
+    for ip in ("1.1.1.1", "2.2.2.2"):
+        main._hits[("analyze", ip)].append(10**12)  # live, far-future timestamps
+    assert client.post("/api/analyze", json=body()).status_code == 200

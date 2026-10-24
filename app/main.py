@@ -11,6 +11,7 @@ import hmac
 import ipaddress
 import json
 import logging
+import re
 import time
 from collections import defaultdict, deque
 
@@ -59,6 +60,16 @@ class SpeakRequest(BaseModel):
 _SIGNING_KEY = hashlib.sha256(b"sajag-speak-v1|" + config.GEMINI_API_KEY.encode()).digest()
 
 
+# A spoken warning must never carry a number, link or address: a caller could try to get Sajag to read out
+# "call 98xxx" or "visit example.com". Anything suspicious is dropped and the curated explanation is used instead.
+_UNSAFE_WARNING = re.compile(r"[0-9०-९૦-૯@]|https?:|www\.|\.(com|in|net|org|app|link)\b", re.IGNORECASE)
+
+
+def safe_warning(text: str) -> str:
+    text = text.strip()
+    return "" if len(text) > 220 or _UNSAFE_WARNING.search(text) else text
+
+
 def sign_warning(lang: str, text: str) -> str:
     return hmac.new(_SIGNING_KEY, f"{lang}|{text}".encode(), hashlib.sha256).hexdigest()
 
@@ -105,8 +116,8 @@ def rate_limit(request: Request, bucket: str) -> None:
     key = (bucket, client_key(request))
     if key not in _hits and len(_hits) >= MAX_TRACKED:
         _prune(now)
-        if len(_hits) >= MAX_TRACKED:  # still full of live clients: refuse newcomers rather than forget existing ones
-            raise HTTPException(429, "Too many requests, slow down")
+        if len(_hits) >= MAX_TRACKED:  # still full: evict the least recently active client, never lock everyone out
+            del _hits[min(_hits, key=lambda k: _hits[k][-1])]
     q = _hits[key]
     while q and now - q[0] > window:
         q.popleft()
@@ -158,9 +169,10 @@ async def analyze(req: ChunkRequest, request: Request):
     if not config.GEMINI_API_KEY:
         raise HTTPException(503, "Gemini is not configured on the server (GEMINI_API_KEY missing)")
 
+    prev_flags = sorted({f for f in req.state.flags if f in rf.CODES})  # client state is untrusted
     try:
         verdict = await analyzer.analyze_chunk(
-            audio, req.mime, req.lang, req.state.transcript, req.state.flags, req.t_start, req.t_end
+            audio, req.mime, req.lang, req.state.transcript, prev_flags, req.t_start, req.t_end
         )
     except Exception:
         log.exception("Gemini analysis failed")
@@ -171,7 +183,8 @@ async def analyze(req: ChunkRequest, request: Request):
     rule_hits = [h for h in rf.match_rules(verdict["transcript"], verdict["english"]) if h["code"] not in model_codes]
     new_flags = [{**f, "source": "gemini"} for f in verdict["flags"]] + [{**h, "source": "rules"} for h in rule_hits]
 
-    all_codes = set(req.state.flags) | {f["code"] for f in new_flags}
+    all_codes = set(prev_flags) | {f["code"] for f in new_flags}
+    warning = safe_warning(verdict["warning"])
     fused = risk.fuse(verdict["scam_probability"], req.state.model_risk, all_codes)
 
     return {
@@ -180,8 +193,8 @@ async def analyze(req: ChunkRequest, request: Request):
         "flags": new_flags,
         "all_flags": sorted(all_codes),
         "scam_type": verdict["scam_type"],
-        "warning": verdict["warning"],
-        "warning_token": sign_warning(req.lang, verdict["warning"]) if verdict["warning"] else "",
+        "warning": warning,
+        "warning_token": sign_warning(req.lang, warning) if warning else "",
         "reasoning": verdict["reasoning"],
         "latency_ms": verdict["latency_ms"],
         **fused,
@@ -194,7 +207,7 @@ async def speak(req: SpeakRequest, request: Request):
     if not config.GEMINI_API_KEY:
         raise HTTPException(503, "Gemini is not configured")
     parts = [rf.HEADLINES["SCAM"][req.lang]]
-    if req.warning and hmac.compare_digest(req.token, sign_warning(req.lang, req.warning)):
+    if req.warning and safe_warning(req.warning) and hmac.compare_digest(req.token, sign_warning(req.lang, req.warning)):
         parts.append(req.warning)
     elif req.flag in rf.EXPLAIN:
         parts.append(rf.EXPLAIN[req.flag][req.lang])

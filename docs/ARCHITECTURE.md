@@ -156,7 +156,11 @@ the "transfer the money" step completes.
   speaks the fixed headline plus either a warning with a valid token or a curated explanation by flag code, and returns
   403 for anything else. The signing key is derived from the API key, so all instances agree with no extra config.
 - **Rate limits.** Per-client sliding window, in memory per instance: 40 `/api/analyze` and 6 `/api/speak` per minute.
-  A live call needs 12 analyses a minute. For heavier abuse put Cloud Armor in front and set a billing budget alert.
+  A live call needs 12 analyses a minute. The table tracks up to 10,000 clients; when it is full of live clients the
+  least recently active one is evicted. That is a deliberate trade-off: an in-process limiter must either fail open
+  (evict) or fail closed (refuse every newcomer, which lets one attacker lock out all real users). Defeating it needs
+  10,000+ distinct IPs or IPv6 /64s, and against that the real controls are an edge limiter (Cloud Armor rate-based
+  rules) and a hard quota plus budget alert on the Gemini key. Set both before any public launch.
 - **Generic errors.** Upstream exceptions are logged with `log.exception` and the client sees "temporarily unavailable".
 
 - Key server-side only; Secret Manager in production; `.env` gitignored.

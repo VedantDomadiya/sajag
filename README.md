@@ -247,7 +247,7 @@ Without uv: `python -m venv .venv && . .venv/bin/activate && pip install fastapi
 Checks:
 
 ```bash
-uv run pytest -q                          # 22 tests: rules, fusion, API contract, input validation (no key needed)
+uv run pytest -q                          # 27 tests: rules, fusion, API contract, input validation, security (no key needed)
 uv run python scripts/evaluate.py         # replays every sample through Gemini and reports accuracy + time to warning
 ```
 
@@ -303,7 +303,7 @@ What "good" means, and how to read the results: [docs/EVALUATION.md](docs/EVALUA
   follow instructions heard in the call and to treat any attempt to address "the AI" as a scam signal, and the keyword
   combo can still force *Careful* even if the model is talked down.
 - **No free proxy to the key.** `/api/speak` only speaks text the server wrote: a fixed headline plus either a warning it
-  returned from `/api/analyze` (verified with an HMAC token) or a hand-written explanation. Both API routes are rate
+  returned from `/api/analyze` (verified with an HMAC token, and rejected if it contains digits, links or addresses) or a hand-written explanation. Both API routes are rate
   limited per client (40 analyses and 6 speeches a minute). Set a budget alert on the Google Cloud project too.
 - **Errors don't leak.** Upstream failures are logged on the server; the browser gets a generic message.
 - **Headers.** `X-Content-Type-Options: nosniff`, a strict `Referrer-Policy`, and a `Permissions-Policy` that allows
