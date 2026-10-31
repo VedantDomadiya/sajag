@@ -1,5 +1,5 @@
 # Sajag on Cloud Run: a small, non-root, stateless container.
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PORT=8080 SAJAG_CLIENT_IP_FROM_RIGHT=1
 WORKDIR /srv
